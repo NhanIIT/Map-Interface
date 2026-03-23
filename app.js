@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Global Maps
     let globalZoneMap = {};
     let globalZoneTypeMap = {};
+    let globalDevicesList = []; // Danh sách thiết bị toàn cục
+    let globalDeviceTypeMap = {}; // Danh sách loại thiết bị toàn cục
+    let startNodeData = null; // Lưu thông tin node bắt đầu
 
     // Login Elements
     const loginModal = document.getElementById('login-modal');
@@ -225,10 +228,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const zoneTypesList = zoneTypesRes ? (zoneTypesRes.elements || zoneTypesRes.data || []) : [];
             const deviceTypesList = deviceTypesRes ? (deviceTypesRes.elements || deviceTypesRes.data || []) : [];
             const devicesList = devicesRes ? (devicesRes.elements || devicesRes.data || []) : [];
+            globalDevicesList = devicesList;
 
             const floorText = floorSelect.options[floorSelect.selectedIndex]?.text || "";
             const floorMatch = floorText.match(/\d+/);
             const currentFloorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
+            
+            globalDeviceTypeMap = {};
+            deviceTypesList.forEach(dt => { globalDeviceTypeMap[dt.id] = dt; });
 
             let locations = [];
             let p = 1;
@@ -245,8 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
             globalZoneTypeMap = {};
             zoneTypesList.forEach(zt => { globalZoneTypeMap[zt.id] = zt; });
 
-            const deviceTypeMap = {};
-            deviceTypesList.forEach(dt => { deviceTypeMap[dt.id] = dt; });
+            const deviceTypeMap = globalDeviceTypeMap;
 
             nodeToLocationMap = {}; // Reset shared map
             const coordToLocationMap = {};
@@ -369,6 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (isPathfinding) return;
                         if (!startNodeId) {
                             startNodeId = node.id;
+                            startNodeData = node; // Lưu lại data node bắt đầu
                             nodeHighlight.classList.add('node-selected-start');
                             showToast("Đã chọn điểm bắt đầu.");
                         } else if (!endNodeId && node.id !== startNodeId) {
@@ -481,6 +488,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     devIcon.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         if (isPathfinding) return;
+
+                        // Reset selection UI
+                        document.querySelectorAll('.device-icon').forEach(d => d.classList.remove('device-selected'));
+                        devIcon.classList.add('device-selected');
+
                         const targetNode = coordToNodeMap[`${posX}:${posY}`];
                         if (targetNode) {
                             document.querySelectorAll('.node-selected-start, .node-selected-end').forEach(el => el.classList.remove('node-selected-start', 'node-selected-end'));
@@ -654,7 +666,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const resetPathfinding = () => {
-        startNodeId = null; endNodeId = null; movingDeviceId = null; movingDevicePurpose = '';
+        startNodeId = null; startNodeData = null; endNodeId = null; movingDeviceId = null; movingDevicePurpose = '';
         if (currentRobot && currentRobot.parentNode) { currentRobot.parentNode.removeChild(currentRobot); currentRobot = null; }
         document.querySelectorAll('.node-selected-start, .node-selected-end, .path-step-highlight').forEach(el => el.classList.remove('node-selected-start', 'node-selected-end', 'path-step-highlight'));
         const pathSvg = document.getElementById('path-svg');
@@ -703,6 +715,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (targetDeviceIcon) {
                     deviceLabel = targetDeviceIcon.getAttribute('data-label') || "";
                     targetDeviceIcon.style.opacity = '0';
+                }
+            }
+
+            if (movingDeviceTypeCode === 'LIFTER') {
+                const startNode = startNodeData;
+                const endNode = currentNodesMap[endId];
+                if (startNode && endNode) {
+                    if (startNode.x !== endNode.x || startNode.y !== endNode.y) {
+                        throw new Error("Lifter chỉ có thể di chuyển lên hoặc xuống tại vị trí tọa độ x,y đó thôi!");
+                    }
+                    addLog(`🛗 [Lifter] Đang thực hiện di chuyển theo trục thẳng đứng...`, "system");
                 }
             }
 
@@ -813,36 +836,90 @@ document.addEventListener('DOMContentLoaded', () => {
                         status: newStatus,
                         metadata: updatedMeta
                     });
-                    addLog(`💾 Đã cập nhật robot ${deviceLabel} -> Trạng thái: ${newStatus}, QR: ${newQrcode}, Tọa độ (${lastStep.X},${lastStep.Y}) lên Postgres`, "success");
+                    addLog(`💾 Đã cập nhật robot ${deviceLabel} -> Trạng thái: ${newStatus}, QR: ${newQrcode}, Tọa độ (${lastStep.X},${lastStep.Y})`, "success");
                     movingDeviceMetadata = updatedMeta;
+
+                    // KIỂM TRA SHUTTLE CÓ TRONG LIFTER
+                    if (movingDeviceTypeCode === 'SHUTTLE') {
+                        const lifterAtPos = globalDevicesList.find(d => {
+                            const type = globalDeviceTypeMap[d.device_type_id];
+                            if (!type || type.code !== 'LIFTER') return false;
+                            let dm = d.metadata;
+                            try { if(typeof dm === 'string') dm = JSON.parse(dm); } catch(e){}
+                            let dx = dm.position?.x ?? dm.x;
+                            let dy = dm.position?.y ?? dm.y;
+                            let dz = dm.position?.z ?? dm.z;
+                            if (dx === undefined || dy === undefined) {
+                                const q = parseQrCodeCoords(dm.qrcode);
+                                dx = q?.x; dy = q?.y; dz = q?.z;
+                            }
+                            return dx === lastStep.X && dy === lastStep.Y && parseInt(dz) === currentFloorZ;
+                        });
+                        if (lifterAtPos) {
+                            addLog(`✅ Robot ${deviceLabel} đã nằm vào Lifter ${lifterAtPos.code}`, "success");
+                        }
+                    }
+
+                    // KIỂM TRA LIFTER KÉO THEO SHUTTLE
+                    if (movingDeviceTypeCode === 'LIFTER') {
+                        const targetZ = currentFloorZ;
+                        const shuttleToCarry = globalDevicesList.find(d => {
+                            const type = globalDeviceTypeMap[d.device_type_id];
+                            if (!type || type.code !== 'SHUTTLE') return false;
+                            if ((d.purpose || '').toUpperCase() !== (movingDevicePurpose || '').toUpperCase()) return false;
+                            
+                            let dm = d.metadata;
+                            try { if(typeof dm === 'string') dm = JSON.parse(dm); } catch(e){}
+                            let dx = dm.position?.x ?? dm.x;
+                            let dy = dm.position?.y ?? dm.y;
+                            let dz = dm.position?.z ?? dm.z;
+                            if (dx === undefined || dy === undefined) {
+                                const q = parseQrCodeCoords(dm.qrcode);
+                                dx = q?.x; dy = q?.y; dz = q?.z;
+                            }
+                            // Shuttle đang ở tầng cũ (startNodeData.z) tại tọa độ Lifter
+                            const floorTextPrev = floorSelect.options[floorSelect.selectedIndex]?.text || "1"; // Cần cẩn thận chỗ này nếu floor select đã đổi
+                            // Tọa độ so khớp
+                            return dx === lastStep.X && dy === lastStep.Y && parseInt(dz) !== targetZ;
+                        });
+
+                        if (shuttleToCarry) {
+                            addLog(`🛗 [Lifter] Đang mang theo Shuttle ${shuttleToCarry.code} lên/xuống Tầng ${targetZ}...`, "system");
+                            let sm = shuttleToCarry.metadata;
+                            try { if(typeof sm === 'string') sm = JSON.parse(sm); } catch(e){}
+                            if (!sm.position) sm.position = {x: lastStep.X, y: lastStep.Y};
+                            else {
+                                sm.position.x = lastStep.X;
+                                sm.position.y = lastStep.Y;
+                            }
+                            delete sm.z;
+                            if (sm.position) delete sm.position.z;
+                            const padStr = (num) => String(num).padStart(4, '0');
+                            sm.qrcode = `${targetZ}X${padStr(lastStep.X)}Y${padStr(lastStep.Y)}`;
+                            
+                            await MapService.updateDevice(whId, shuttleToCarry.id, { metadata: sm });
+                            addLog(`✅ Đã đưa Shuttle ${shuttleToCarry.code} đến Tầng ${targetZ} thành công!`, "success");
+                        }
+                    }
 
                     if (targetDeviceIcon) {
                         targetDeviceIcon.classList.remove('device-status-busy');
                         targetDeviceIcon.classList.add(`device-status-${newStatus.toLowerCase()}`);
                     }
-
-                    // Nếu là SHUTTLE và điểm đích là một Location, cập nhật trạng thái Location
+                    
+                    // Logic Location cũ
                     if (movingDeviceTypeCode === 'SHUTTLE') {
                         const targetLocation = nodeToLocationMap[endId];
                         if (targetLocation) {
-                            addLog(`📦 Đang cập nhật trạng thái ô kệ đích ${targetLocation.code}...`, "system");
-                            if (movingDevicePurpose === 'OUTBOUND') {
-                                // OUTBOUND đến lấy hàng -> Trạng thái 1, is_occupied: true
-                                await MapService.updateLocationStatus(whId, targetLocation.id, 1, true);
-                                addLog(`✅ Đã cập nhật ô kệ ${targetLocation.code}: Trạng thái 1 (RESERVED), is_occupied: true`, "success");
-                            } else {
-                                // INBOUND mang hàng cất vào -> Trạng thái 2, is_occupied: true
-                                await MapService.updateLocationStatus(whId, targetLocation.id, 2, true);
-                                addLog(`✅ Đã cập nhật ô kệ ${targetLocation.code}: Trạng thái 2 (BLOCKED), is_occupied: true`, "success");
-                            }
-                            // Re-render để cập nhật icon cargo
+                            const st = movingDevicePurpose === 'OUTBOUND' ? 1 : 2;
+                            await MapService.updateLocationStatus(whId, targetLocation.id, st, true);
                             setTimeout(renderGrid, 500);
                         }
                     }
                 } catch (e) { addLog(`❌ Lỗi cập nhật Postgres/Location: ${e.message}`, "error"); }
             }
 
-            startNodeId = endId; endNodeId = null; movingDevicePurpose = '';
+            startNodeId = endId; startNodeData = currentNodesMap[startNodeId]; endNodeId = null; movingDevicePurpose = '';
             document.querySelectorAll('.node-selected-start, .node-selected-end, .path-step-highlight').forEach(el => {
                 el.classList.remove('node-selected-start', 'node-selected-end', 'path-step-highlight');
             });

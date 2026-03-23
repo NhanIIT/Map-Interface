@@ -531,6 +531,8 @@ body {
 
 .device-icon.shuttle-device {
     background-image: url('assets/shuttle_icon.png');
+    z-index: 85; /* Đặt Shuttle lên trên Lifter */
+    transform: translate(-2px, -2px); /* Lệch nhẹ để dễ chọn */
 }
 
 .device-icon.lifter-device {
@@ -539,7 +541,8 @@ body {
     background-color: transparent !important;
     border: none !important;
     filter: none !important;
-    /* Giữ nguyên màu xanh gốc, không bị filter trạng thái đè */
+    z-index: 80; /* Lifter nằm dưới */
+    transform: translate(2px, 2px); /* Lệch nhẹ hướng ngược lại */
 }
 
 .device-icon:hover::after {
@@ -577,6 +580,13 @@ body {
 .device-status-offline {
     filter: grayscale(1);
     opacity: 0.5;
+}
+
+.device-selected {
+    border: 3px solid #ffeb3b !important;
+    box-shadow: 0 0 15px rgba(255, 235, 59, 0.8) !important;
+    z-index: 200 !important;
+    transform: scale(1.15) !important;
 }
 
 .path-step-highlight {
