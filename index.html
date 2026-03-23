@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sơ Đồ Tọa Độ</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="top-bar">
+        <div class="left-actions">
+            <select class="warehouse-select" id="warehouse-select">
+                <option value="">Chọn kho...</option>
+            </select>
+            <select class="floor-select" id="floor-select">
+                <option value="">Chọn tầng...</option>
+            </select>
+        </div>
+        <div class="right-actions">
+            <span id="user-info" style="display:none; font-size: 14px; margin-right: 10px;">Chào, <b id="username-display">abc</b></span>
+            <button class="btn btn-primary" id="logout-btn" style="display:none;">Đăng xuất</button>
+            <button id="reload-ram-btn" class="btn btn-warning" style="margin-right: 10px; padding: 5px 12px; background: #f39c12; border:none; border-radius: 4px; color: white; cursor: pointer;">Nạp lại RAM</button>
+            <button class="btn btn-primary">Đồng bộ tất cả</button>
+        </div>
+    </header>
+
+    <div id="error-toast" class="error-toast"></div>
+
+    <main class="map-wrapper">
+        <div class="scroll-container" id="scroll-container">
+            <div class="map-grid" id="map-grid">
+                <svg id="path-svg" class="path-svg"></svg>
+                <div class="map-zone-overlay"></div>
+            </div>
+        </div>
+        
+        <!-- Bảng chú giải Zoom & Legend -->
+        <div class="zoom-controls">
+            <button id="zoom-in" class="zoom-btn">+</button>
+            <button id="zoom-out" class="zoom-btn">−</button>
+        </div>
+
+        <!-- Bảng Chú Thích Zone (Mới) -->
+        <aside class="zone-legend-panel" id="zone-legend-panel">
+            <div class="legend-header">
+                <h3>Bảng Chú Thích</h3>
+            </div>
+            <div class="legend-subtitle" style="display: none;">BIỂU TƯỢNG HỆ THỐNG</div>
+            <div class="legend-body" id="legend-icons-body" style="display: none;">
+                <!-- Sẽ được populate bởi JS: Robot, Lifter, Shuttle, Inbound, Outbound... -->
+                <div class="legend-item-placeholder">Đang tải...</div>
+            </div>
+            <div class="legend-subtitle">MÀU SẮC KHU VỰC (ZONE)</div>
+            <div class="legend-body" id="legend-colors-body">
+                <div class="legend-item-placeholder">Chưa có dữ liệu...</div>
+            </div>
+        </aside>
+
+        <!-- Khung Log Tìm Đường -->
+        <aside class="path-log-panel" id="path-log-panel">
+            <div class="log-header">
+                <h3>Robot Pathfinding Log</h3>
+                <button class="clear-log-mini" id="clear-log-mini">Xóa Log</button>
+            </div>
+            <div class="log-body" id="log-body">
+                <div class="log-entry system">Sẵn sàng chọn điểm...</div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2>Đăng nhập</h2>
+            <p>Vui lòng đăng nhập để xem bản đồ kho</p>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Tên đăng nhập</label>
+                    <input type="text" id="username" required placeholder="admin">
+                </div>
+                <div class="form-group">
+                    <label>Mật khẩu</label>
+                    <input type="password" id="password" required placeholder="123">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Đăng nhập</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
