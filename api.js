@@ -184,5 +184,13 @@ const MapService = {
      */
     async fetchDeviceTypes() {
         return this.callApi(`/device-types?limit=100`);
+    },
+
+    /**
+     * Lấy danh sách Task của kho
+     */
+    async fetchTasks(warehouseId) {
+        if (!warehouseId) return null;
+        return this.callApi(`/warehouse/${warehouseId}/task?limit=50&sort=updated_at:desc`);
     }
 };

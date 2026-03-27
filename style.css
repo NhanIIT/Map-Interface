@@ -4,7 +4,6 @@
     --text-color: #495057;
     --dot-color: #a0aec0;
     --grid-size: 40px;
-    /* Kích thước 1 ô vuông cơ sở */
     --border-color: #e2e8f0;
 }
 
@@ -69,13 +68,14 @@ body {
     flex: 1;
     overflow: hidden;
     background: white;
+    display: flex;
+    flex-direction: column;
 }
 
 .scroll-container {
+    flex: 1;
     width: 100%;
-    height: 100%;
     overflow: auto;
-    /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: #a0aec0 transparent;
 }
@@ -94,15 +94,14 @@ body {
 /* Sơ đồ CSS Grid */
 .map-grid {
     display: grid;
-    /* Transform origin cho việc zoom */
-    transform-origin: 0 0;
-    transition: transform 0.2s ease;
+    position: relative;
+    /* Thêm để định vị tuyệt đối các thành phần con như robot mượt mà */
+    /* Không dùng transform vì sẽ làm hỏng position: sticky */
     background-color: white;
     padding-bottom: 20px;
     padding-right: 20px;
 }
 
-/* Căn chỉnh chung cho các Cell */
 .grid-cell {
     width: var(--grid-size);
     height: var(--grid-size);
@@ -112,9 +111,10 @@ body {
     color: var(--text-color);
     font-size: 12px;
     font-weight: 600;
+    position: relative;
+    /* Thêm để định vị mũi tên bên trong */
 }
 
-/* Label trục X & Y */
 .x-axis-label {
     position: sticky;
     top: 0;
@@ -129,7 +129,6 @@ body {
     z-index: 2;
 }
 
-/* Góc trên cùng bên trái (trống) */
 .corner-cell {
     position: sticky;
     top: 0;
@@ -138,7 +137,6 @@ body {
     z-index: 3;
 }
 
-/* Các chấm mờ tọa độ */
 .grid-dot {
     position: relative;
     width: 100%;
@@ -150,17 +148,17 @@ body {
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -150%);
     color: var(--dot-color);
     font-size: 16px;
-    opacity: 0.8;
+    opacity: 0.5;
 }
 
 /* Zoom Controls */
 .zoom-controls {
     position: absolute;
-    bottom: 24px;
-    right: 24px;
+    bottom: 80px;
+    right: 610px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -169,6 +167,7 @@ body {
     border-radius: 8px;
     padding: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 110;
 }
 
 .zoom-btn {
@@ -182,20 +181,11 @@ body {
     color: var(--text-color);
 }
 
-.zoom-btn:hover {
-    background: #f1f5f9;
-}
-
 .map-zone-overlay {
-    /* Màu sắc mặc định, sẽ được đè bởi JS */
     background-color: rgba(3, 169, 244, 0.1);
     border: 1px solid rgba(0, 0, 0, 0.05);
     border-radius: 4px;
-
-    /* Phủ lên trên các chấm grid mờ (mặc định z-index: 0) nhưng dưới nhãn trục (z-index: 2+) */
     z-index: 1;
-
-    /* Cho phép tương tác */
     pointer-events: auto;
     transition: all 0.2s ease;
 }
@@ -204,10 +194,6 @@ body {
     filter: brightness(0.9);
     box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
     z-index: 4;
-}
-
-.node-marker {
-    display: none;
 }
 
 .node-map-label {
@@ -222,206 +208,9 @@ body {
     z-index: 5;
     white-space: nowrap;
     text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
-    /* Giúp chữ nổi bật hơn trên nền màu */
 }
 
-.zone-label {
-    font-size: 10px;
-    color: var(--primary-blue);
-    font-weight: bold;
-    padding: 2px 4px;
-    pointer-events: none;
-    z-index: 2;
-    text-transform: uppercase;
-    opacity: 0.7;
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-start;
-}
-
-/* Modal & Login Styles */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    /* Bật/tắt */
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-}
-
-.modal-content {
-    background: white;
-    padding: 32px;
-    border-radius: 12px;
-    width: 400px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-}
-
-.modal-content h2 {
-    margin-bottom: 8px;
-    color: var(--primary-blue);
-}
-
-.modal-content p {
-    margin-bottom: 24px;
-    color: #718096;
-    font-size: 14px;
-}
-
-.form-group {
-    margin-bottom: 16px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-.form-group input {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    outline: none;
-}
-
-.form-group input:focus {
-    border-color: var(--primary-blue);
-}
-
-.btn-block {
-    width: 100%;
-    margin-top: 8px;
-}
-
-.error-toast {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: #e53e3e;
-    color: white;
-    padding: 12px 24px;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 2000;
-    transform: translateX(200%);
-    transition: transform 0.3s ease;
-}
-
-.error-toast.show {
-    transform: translateX(0);
-}
-
-#render-overlay {
-    font-weight: 600;
-    color: var(--primary-blue);
-}
-
-.zone-icon {
-    pointer-events: none;
-    z-index: 3;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.8;
-}
-
-.charging-icon {
-    background-image: url('assets/charging_icon.png');
-    background-size: 120%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 22px;
-    height: 22px;
-    margin: auto;
-    background-color: white;
-    border-radius: 50%;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    border: 1px solid #e2e8f0;
-}
-
-.waiting-icon {
-    background-image: url('assets/waiting_icon.png');
-    background-size: 140%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 20px;
-    height: 20px;
-    margin: auto;
-    background-color: white;
-    border-radius: 50%;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    border: 1px solid #e2e8f0;
-}
-
-/* .lifter-icon {
-    background-image: url('assets/lifter-icon.png');
-    background-size: 120%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 20px;
-    height: 20px;
-    margin: auto;
-    background-color: white;
-    border-radius: 50%;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    border: 1px solid #e2e8f0;
-} */
-
-.cargo-icon {
-    background-image: url('assets/box_icon.png');
-    background-size: 110%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 24px;
-    height: 24px;
-    margin: auto;
-    z-index: 10;
-    pointer-events: none;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
-    background-color: white;
-    border-radius: 50%;
-    border: 1px solid #cbd5e0;
-}
-
-.import-icon {
-    background-image: url('assets/import_icon.png');
-    background-size: 100%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 22px;
-    height: 22px;
-    margin: auto;
-    background-color: white;
-    border-radius: 50%;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    border: 1px solid #FFFF;
-    /* Green border for import */
-}
-
-.export-icon {
-    background-image: url('assets/export_icon(1).png');
-    background-size: 80%;
-    background-repeat: no-repeat;
-    background-position: center;
-    width: 22px;
-    height: 22px;
-    margin: auto;
-    background-color: white;
-    border-radius: 50%;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    border: 1px solid #FFFF;
-    /* Red/Export border style */
-}
-
-/* Biểu tượng hướng đi */
+/* Biểu tượng hướng đi (Mũi tên trên bản đồ) */
 .direction-arrow {
     position: absolute;
     font-size: 14px;
@@ -477,195 +266,149 @@ body {
     font-size: 16px;
 }
 
-/* Robot Minh họa & Path */
-.robot-icon {
-    width: 22px;
-    height: 22px;
-    background-image: url('assets/shuttle_box_icon.png');
-    background-size: 140%;
-    background-repeat: no-repeat;
-    background-position: center;
-    z-index: 100;
-    pointer-events: auto;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-    position: relative;
-    transition: all 0.6s linear;
-    margin: auto;
-    background-color: #ebf8ff;
-    border-radius: 50%;
-    border: 1px solid #3182ce;
-}
-
-.robot-icon:hover::after {
-    content: attr(data-label);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    white-space: nowrap;
-    z-index: 101;
-}
-
+/* Biểu tượng Device/Robot */
 .device-icon {
-    width: 22px;
-    height: 22px;
+    width: calc(var(--grid-size) * 0.65);
+    height: calc(var(--grid-size) * 0.65);
     background-size: 140%;
     background-repeat: no-repeat;
     background-position: center;
-    z-index: 80;
+    z-index: 105;
     pointer-events: auto;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* transition: transform 0.3s linear;  -- Bật khi dùng transform */
+    /* Tối ưu transition: Chỉ trượt khi di chuyển, không làm trễ khi co giãn width/height */
+    transition: transform 0.3s linear, opacity 0.3s ease;
+    will-change: transform;
     filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
-    position: relative;
-    margin: auto;
+    position: absolute;
+    /* Quan trọng để di chuyển mượt ngoài grid cell */
+    margin: 0;
+    top: 0;
+    left: 0;
     background-color: white;
     border-radius: 50%;
     border: 1px solid #a0aec0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.device-icon.shuttle-device {
+.shuttle-device {
     background-image: url('assets/shuttle_icon.png');
-    z-index: 85; /* Đặt Shuttle lên trên Lifter */
-    transform: translate(-2px, -2px); /* Lệch nhẹ để dễ chọn */
+    z-index: 105;
+    background-color: transparent !important;
 }
 
-.device-icon.lifter-device {
-    background-image: url('assets/lifter-icon.png');
-    background-size: 140%;
+.shuttle-device-cargo {
+    background-image: url('assets/shuttle_box_icon.png') !important;
+    background-size: 140% !important;
     background-color: transparent !important;
     border: none !important;
-    filter: none !important;
-    z-index: 80; /* Lifter nằm dưới */
-    transform: translate(2px, 2px); /* Lệch nhẹ hướng ngược lại */
+    z-index: 106;
 }
 
-.device-icon:hover::after {
-    content: attr(data-label);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    white-space: nowrap;
-    z-index: 101;
+.lifter-device {
+    background-image: url('assets/lifter-icon.png');
+    background-color: transparent !important;
+    border: none !important;
+    z-index: 100;
 }
 
-.device-status-idle {
-    filter: grayscale(0.5) sepia(0.5) hue-rotate(90deg);
-    opacity: 0.9;
-}
-
-.device-status-busy {
-    filter: hue-rotate(180deg);
-}
-
-.device-status-error {
-    filter: saturate(3) hue-rotate(-30deg);
-}
-
-.device-status-charging {
-    filter: grayscale(0.2) sepia(0.8) hue-rotate(10deg);
-}
-
-.device-status-offline {
-    filter: grayscale(1);
-    opacity: 0.5;
-}
-
-.device-selected {
-    border: 3px solid #ffeb3b !important;
-    box-shadow: 0 0 15px rgba(255, 235, 59, 0.8) !important;
-    z-index: 200 !important;
-    transform: scale(1.15) !important;
-}
-
-.path-step-highlight {
-    background-color: rgba(255, 193, 7, 0.4) !important;
-    border: 2px dashed #ffc107 !important;
-}
-
-.node-selected-start {
-    background-color: rgba(76, 175, 80, 0.4) !important;
-    border: 2px solid #4CAF50 !important;
-    box-shadow: 0 0 10px #4CAF50;
-}
-
-.node-selected-end {
-    background-color: rgba(244, 67, 54, 0.4) !important;
-    border: 2px solid #f44336 !important;
-    box-shadow: 0 0 10px #f44336;
-}
-
-#clear-path-btn {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 1000;
-    padding: 10px 20px;
-    background: #f44336;
-    color: white;
-    border-radius: 20px;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    box-shadow: 0 2px 10px rgba(244, 67, 54, 0.4);
-    display: none;
-}
-
-/* Path SVG Layer */
-.path-svg {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+.cargo-icon {
+    background-image: url('assets/box_icon.png');
+    background-size: 110%;
+    background-repeat: no-repeat;
+    background-position: center;
+    width: calc(var(--grid-size) * 0.6);
+    height: calc(var(--grid-size) * 0.6);
+    margin: auto;
+    z-index: 10;
     pointer-events: none;
-    z-index: 90;
+    background-color: white;
+    border-radius: 50%;
+    border: 1px solid #cbd5e0;
 }
 
-.path-line {
-    fill: none;
-    stroke: rgba(255, 193, 7, 0.7);
-    stroke-width: 4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-dasharray: 8 4;
-    animation: dash-move 1s linear infinite;
+/* Biểu tượng đặc thù theo khu vực (Zone Icons) */
+.zone-icon {
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0.9;
+    width: calc(var(--grid-size) * 0.55);
+    height: calc(var(--grid-size) * 0.55);
+    margin: auto;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-color: white;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-@keyframes dash-move {
-    to {
-        stroke-dashoffset: -12;
-    }
+.charging-icon {
+    background-image: url('assets/charging_icon.png');
+    background-size: 110%;
+}
+
+.waiting-icon {
+    background-image: url('assets/waiting_icon.png');
+    background-size: 130%;
+}
+
+.import-icon {
+    background-image: url('assets/import_icon.png');
+    background-size: 100%;
+}
+
+.export-icon {
+    background-image: url('assets/export_icon(1).png');
+    background-size: 80%;
 }
 
 
-/* Path Log Side Panel */
-.path-log-panel {
+.small-icon {
+    width: calc(var(--grid-size) * 0.45);
+    height: calc(var(--grid-size) * 0.45);
+}
+
+/* Layout Log bên phải - Xếp Nằm Ngang */
+.side-panel-right {
     position: absolute;
     top: 20px;
     right: 20px;
-    width: 250px;
-    max-height: calc(100vh - 120px);
-    background: white;
-    border: 3px solid #0056b3;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    width: 580px;
+    height: 300px;
+    display: flex;
+    flex-direction: row;
+    gap: 15px;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.side-panel-right aside {
+    pointer-events: auto;
+    position: static;
+    flex: 1;
+    width: 280px;
     display: flex;
     flex-direction: column;
-    z-index: 50;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
     overflow: hidden;
-    font-family: inherit;
+}
+
+.task-log-panel {
+    border: 3px solid #28a745;
+}
+
+.path-log-panel {
+    border: 3px solid #0056b3;
 }
 
 .log-header {
@@ -677,40 +420,28 @@ body {
     align-items: center;
 }
 
-.log-header h3 {
-    margin: 0;
-    font-size: 13px;
-    text-transform: uppercase;
+.task-log-panel .log-header {
+    background: #28a745;
 }
 
-.clear-log-mini {
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid white;
-    color: white;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    cursor: pointer;
+.log-header h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    margin: 0;
 }
 
 .log-body {
+    flex: 1;
     padding: 10px;
     overflow-y: auto;
     font-size: 12px;
-    line-height: 1.4;
     background: #f8faff;
-    flex: 1;
 }
 
 .log-entry {
     margin-bottom: 8px;
     padding-bottom: 5px;
     border-bottom: 1px dashed #e0eaef;
-}
-
-.log-entry.system {
-    color: #666;
-    font-style: italic;
 }
 
 .log-entry.success {
@@ -723,82 +454,39 @@ body {
     font-weight: bold;
 }
 
-.log-entry.path {
-    color: #007bff;
-}
-
 .log-entry .time {
     font-size: 10px;
     color: #999;
     display: block;
 }
 
-.log-entry .result-box {
-    margin-top: 5px;
-    background: #eef4ff;
-    padding: 8px;
-    border-radius: 6px;
-    border-left: 4px solid #0056b3;
-}
-
-/* Zone Legend Side Panel */
-.zone-legend-panel {
-    position: absolute;
-    top: 20px;
-    right: 285px;
-    width: 350px;
-    max-height: calc(100vh - 120px);
-    background: white;
-    border: 3px solid #0056b3;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+/* Bảng chú thích Nằm Ngang phía dưới */
+.zone-legend-bottom {
+    background: rgba(255, 255, 255, 0.95);
+    border-top: 2px solid var(--primary-blue);
     display: flex;
-    flex-direction: column;
-    z-index: 50;
-    overflow: hidden;
-    font-family: inherit;
-    transition: all 0.3s ease;
+    align-items: center;
+    padding: 5px 20px;
+    z-index: 1000;
+    height: 60px;
 }
 
-.legend-header {
-    background: #0056b3;
-    color: white;
-    padding: 10px;
-    text-align: center;
-    font-size: 16px;
-}
-
-.legend-header h3 {
-    margin: 0;
-    font-size: 14px;
+.legend-header-compact {
+    color: var(--primary-blue);
+    font-size: 10px;
     font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    white-space: nowrap;
+    margin-right: 15px;
+    padding-right: 15px;
+    border-right: 1px solid #ddd;
 }
 
-.legend-subtitle {
-    background: #edf2f7;
-    color: #4a5568;
-    font-size: 14px;
-    font-weight: 800;
-    padding: 4px 10px;
-    border-top: 1px solid #cbd5e0;
-    border-bottom: 1px solid #cbd5e0;
-    text-transform: uppercase;
-}
-
-.legend-body {
-    padding: 10px;
-    overflow-y: auto;
-    font-size: 14px;
-    background: #f8faff;
-    max-height: 50%;
-    /* Giới hạn chiều cao mỗi phần nếu cần */
-}
-
-/* Đảm bảo phần màu sắc khu vực có thể co giãn tốt hơn */
-#legend-colors-body {
-    max-height: none;
+.legend-row-scroll {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+    overflow-x: auto;
     flex: 1;
 }
 
@@ -806,46 +494,136 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 10px;
-    padding: 8px;
-    background: white;
-    border-radius: 8px;
-    border: 1px solid #e0eaef;
-    transition: all 0.2s ease;
-    cursor: default;
-}
-
-.legend-item:hover {
-    transform: translateX(4px);
-    border-color: #0056b3;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .legend-color-box {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    flex-shrink: 0;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1.5px solid rgba(0, 0, 0, 0.1);
 }
 
 .legend-name {
-    font-weight: 600;
-    color: #2d3748;
-    font-size: 14px;
-    line-height: 1.2;
+    display: none;
 }
 
 .legend-code {
-    font-size: 11px;
-    color: #718096;
-    margin-left: auto;
-    font-weight: 500;
+    font-size: 9px;
+    font-weight: 700;
+    color: #2d3748;
 }
 
-.legend-item-placeholder {
-    color: #a0aec0;
-    text-align: center;
-    font-style: italic;
-    padding: 20px 0;
+/* Modal & Toast */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.modal-content {
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+    width: 400px;
+}
+
+.error-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #e53e3e;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 6px;
+    z-index: 3000;
+    transform: translateX(200%);
+    transition: transform 0.3s ease;
+}
+
+.error-toast.show {
+    transform: translateX(0);
+}
+
+.clear-log-mini {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid white;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+/* Status Colors */
+.device-status-idle {
+    filter: grayscale(0.5);
+}
+
+.device-status-busy {
+    border-color: #3182ce;
+    box-shadow: 0 0 10px rgba(49, 130, 206, 0.5);
+}
+
+.device-status-offline {
+    filter: grayscale(1);
+    opacity: 0.5;
+}
+
+.path-step-highlight {
+    background-color: rgba(255, 193, 7, 0.3) !important;
+}
+
+.node-selected-start {
+    border: 2.5px solid #4CAF50 !important;
+}
+
+.node-selected-end {
+    border: 2.5px solid #f44336 !important;
+}
+
+.path-line {
+    fill: none;
+    stroke: rgba(255, 193, 7, 0.8);
+    stroke-width: 5;
+    stroke-linecap: round;
+    stroke-dasharray: 10 5;
+    animation: dash-move 1s linear infinite;
+}
+
+@keyframes dash-move {
+    to {
+        stroke-dashoffset: -15;
+    }
+}
+
+/* Device status specific: Charging & Warning */
+.device-status-charging {
+    border-color: #ecc94b !important; /* Yellow */
+    box-shadow: 0 0 10px rgba(236, 201, 75, 0.7) !important;
+    animation: pulse-charging 2s infinite ease-in-out;
+}
+
+.device-status-warning {
+    border-color: #f56565 !important; /* Red/Alert */
+    box-shadow: 0 0 12px rgba(245, 101, 101, 0.6) !important;
+    animation: pulse-warning 1s infinite;
+}
+
+@keyframes pulse-charging {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.2); box-shadow: 0 0 15px rgba(236, 201, 75, 0.9); }
+    100% { filter: brightness(1); }
+}
+
+@keyframes pulse-warning {
+    0% { transform: scale(1) translate(0, 0); }
+    50% { transform: scale(1.1) translate(0, 0); }
+    100% { transform: scale(1) translate(0, 0); }
 }

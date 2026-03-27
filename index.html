@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sơ Đồ Tọa Độ</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 </head>
+
 <body>
     <header class="top-bar">
         <div class="left-actions">
@@ -17,9 +20,12 @@
             </select>
         </div>
         <div class="right-actions">
-            <span id="user-info" style="display:none; font-size: 14px; margin-right: 10px;">Chào, <b id="username-display">abc</b></span>
+            <span id="user-info" style="display:none; font-size: 14px; margin-right: 10px;">Chào, <b
+                    id="username-display">abc</b></span>
             <button class="btn btn-primary" id="logout-btn" style="display:none;">Đăng xuất</button>
-            <button id="reload-ram-btn" class="btn btn-warning" style="margin-right: 10px; padding: 5px 12px; background: #f39c12; border:none; border-radius: 4px; color: white; cursor: pointer;">Nạp lại RAM</button>
+            <button id="reload-ram-btn" class="btn btn-warning"
+                style="margin-right: 10px; padding: 5px 12px; background: #f39c12; border:none; border-radius: 4px; color: white; cursor: pointer;">Nạp
+                lại RAM</button>
             <button class="btn btn-primary">Đồng bộ tất cả</button>
         </div>
     </header>
@@ -33,37 +39,45 @@
                 <div class="map-zone-overlay"></div>
             </div>
         </div>
-        
+
         <!-- Bảng chú giải Zoom & Legend -->
         <div class="zoom-controls">
             <button id="zoom-in" class="zoom-btn">+</button>
             <button id="zoom-out" class="zoom-btn">−</button>
         </div>
 
-        <!-- Bảng Chú Thích Zone (Mới) -->
-        <aside class="zone-legend-panel" id="zone-legend-panel">
-            <div class="legend-header">
-                <h3>Bảng Chú Thích</h3>
-            </div>
-            <div class="legend-subtitle" style="display: none;">BIỂU TƯỢNG HỆ THỐNG</div>
-            <div class="legend-body" id="legend-icons-body" style="display: none;">
-                <!-- Sẽ được populate bởi JS: Robot, Lifter, Shuttle, Inbound, Outbound... -->
-                <div class="legend-item-placeholder">Đang tải...</div>
-            </div>
-            <div class="legend-subtitle">MÀU SẮC KHU VỰC (ZONE)</div>
-            <div class="legend-body" id="legend-colors-body">
-                <div class="legend-item-placeholder">Chưa có dữ liệu...</div>
-            </div>
-        </aside>
+        <!-- Nhóm các Khung Log bên phải -->
+        <div class="side-panel-right">
+            <!-- Khung Log Hoạt Động Task -->
+            <aside class="task-log-panel" id="task-log-panel">
+                <div class="log-header">
+                    <h3>Task Activity Log</h3>
+                    <button class="clear-log-mini" id="clear-task-log">Xóa Log</button>
+                </div>
+                <div class="log-body" id="task-log-body">
+                    <div class="log-entry system">Đang chờ task...</div>
+                </div>
+            </aside>
 
-        <!-- Khung Log Tìm Đường -->
-        <aside class="path-log-panel" id="path-log-panel">
-            <div class="log-header">
-                <h3>Robot Pathfinding Log</h3>
-                <button class="clear-log-mini" id="clear-log-mini">Xóa Log</button>
+            <!-- Khung Log Tìm Đường -->
+            <aside class="path-log-panel" id="path-log-panel">
+                <div class="log-header">
+                    <h3>Pathfinding Log</h3>
+                    <button class="clear-log-mini" id="clear-log-mini">Xóa Log</button>
+                </div>
+                <div class="log-body" id="log-body">
+                    <div class="log-entry system">Sẵn sàng...</div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Bảng Chú Thích Zone (Nằm ngang ở dưới) -->
+        <aside class="zone-legend-bottom" id="zone-legend-panel">
+            <div class="legend-header-compact">
+                <b>CHÚ THÍCH ZONE</b>
             </div>
-            <div class="log-body" id="log-body">
-                <div class="log-entry system">Sẵn sàng chọn điểm...</div>
+            <div class="legend-row-scroll" id="legend-colors-body">
+                <div class="legend-item-placeholder">Đang tải...</div>
             </div>
         </aside>
     </main>
@@ -90,4 +104,5 @@
     <script src="api.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>
