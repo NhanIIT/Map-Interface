@@ -381,11 +381,11 @@ body {
     position: absolute;
     top: 20px;
     right: 20px;
-    width: 580px;
-    height: 300px;
+    width: 880px;
+    height: 650px;
     display: flex;
     flex-direction: row;
-    gap: 15px;
+    gap: 12px;
     pointer-events: none;
     z-index: 100;
 }
@@ -394,7 +394,7 @@ body {
     pointer-events: auto;
     position: static;
     flex: 1;
-    width: 280px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     background: white;
@@ -403,8 +403,21 @@ body {
     overflow: hidden;
 }
 
-.task-log-panel {
+.task-log-panel.inbound-panel {
     border: 3px solid #28a745;
+}
+
+.task-log-panel.inbound-panel .log-header {
+    background: #28a745;
+}
+
+.task-log-panel.outbound-panel {
+    border: 3px solid #3f51b5;
+    /* Indigo */
+}
+
+.task-log-panel.outbound-panel .log-header {
+    background: #3f51b5;
 }
 
 .path-log-panel {
@@ -605,25 +618,44 @@ body {
 
 /* Device status specific: Charging & Warning */
 .device-status-charging {
-    border-color: #ecc94b !important; /* Yellow */
+    border-color: #ecc94b !important;
+    /* Yellow */
     box-shadow: 0 0 10px rgba(236, 201, 75, 0.7) !important;
     animation: pulse-charging 2s infinite ease-in-out;
 }
 
 .device-status-warning {
-    border-color: #f56565 !important; /* Red/Alert */
+    border-color: #f56565 !important;
+    /* Red/Alert */
     box-shadow: 0 0 12px rgba(245, 101, 101, 0.6) !important;
     animation: pulse-warning 1s infinite;
 }
 
 @keyframes pulse-charging {
-    0% { filter: brightness(1); }
-    50% { filter: brightness(1.2); box-shadow: 0 0 15px rgba(236, 201, 75, 0.9); }
-    100% { filter: brightness(1); }
+    0% {
+        filter: brightness(1);
+    }
+
+    50% {
+        filter: brightness(1.2);
+        box-shadow: 0 0 15px rgba(236, 201, 75, 0.9);
+    }
+
+    100% {
+        filter: brightness(1);
+    }
 }
 
 @keyframes pulse-warning {
-    0% { transform: scale(1) translate(0, 0); }
-    50% { transform: scale(1.1) translate(0, 0); }
-    100% { transform: scale(1) translate(0, 0); }
+    0% {
+        transform: scale(1) translate(0, 0);
+    }
+
+    50% {
+        transform: scale(1.1) translate(0, 0);
+    }
+
+    100% {
+        transform: scale(1) translate(0, 0);
+    }
 }

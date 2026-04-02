@@ -62,9 +62,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('DEVICE_MOVED', (data) => {
         const deviceData = parseKafkaPayload(data);
-        if (deviceData && deviceData.id) {
+        // [FIX] Hỗ trợ cả 'id' (database) và 'no' (simulator). Chuẩn hóa 'code' để đồng nhất với globalDevicesList
+        const devId = deviceData.id || deviceData.no;
+        const devCode = deviceData.code || deviceData.no || devId;
+
+        if (deviceData && devId) {
+            deviceData.id = devId;
+            deviceData.code = devCode;
+
             if (typeof deviceData.metadata === 'string') {
                 try { deviceData.metadata = JSON.parse(deviceData.metadata); } catch (e) { }
+            }
+            // [FIX] Cập nhật ngay vào globalDevicesList để tránh bị ghi đè bởi dữ liệu cũ từ API
+            if (Array.isArray(globalDevicesList)) {
+                // Tìm kiếm dựa trên cả ID và Code để chắc chắn khớp với dữ liệu từ API (UUID)
+                const idx = globalDevicesList.findIndex(d => d.id === devId || (d.code && d.code === devCode));
+                if (idx !== -1) {
+                    globalDevicesList[idx] = { ...globalDevicesList[idx], ...deviceData };
+                } else if (deviceData.code) {
+                    globalDevicesList.push(deviceData);
+                }
             }
             updateDevicePositions([deviceData]);
         }
@@ -696,10 +713,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /**
-     * Ghi Log cho Task Activity
+     * Ghi Log cho Task Activity (Hỗ trợ phân luồng Inbound/Outbound)
      */
-    const addTaskLog = (message, type = 'info') => {
-        const body = document.getElementById('task-log-body');
+    const addTaskLog = (message, type = 'info', targetBodyId = 'task-inbound-body') => {
+        const body = document.getElementById(targetBodyId);
         if (!body) return;
 
         const entry = document.createElement('div');
@@ -718,9 +735,15 @@ document.addEventListener('DOMContentLoaded', () => {
         while (body.children.length > 100) body.removeChild(body.firstChild);
     };
 
-    document.getElementById('clear-task-log')?.addEventListener('click', () => {
-        const body = document.getElementById('task-log-body');
-        if (body) body.innerHTML = '<div class="log-entry system">Log đã được dọn dẹp.</div>';
+    document.getElementById('clear-inbound-log')?.addEventListener('click', () => {
+        const body = document.getElementById('task-inbound-body');
+        if (body) body.innerHTML = '<div class="log-entry system">Log nhập đã xóa.</div>';
+        lastProcessedTasks = {};
+    });
+
+    document.getElementById('clear-outbound-log')?.addEventListener('click', () => {
+        const body = document.getElementById('task-outbound-body');
+        if (body) body.innerHTML = '<div class="log-entry system">Log xuất đã xóa.</div>';
         lastProcessedTasks = {};
     });
 
@@ -862,7 +885,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (movingDeviceId && movingDeviceMetadata) {
                 const lastStep = path[path.length - 1];
-                simulatedPositionMap[movingDeviceId] = { x: lastStep.X, y: lastStep.Y };
+                // [FIX] KHÔNG nên gán simulatedPositionMap ngay lập tức vì sẽ gây hiện tượng "nhảy cóc" 
+                // icon đến đích trước khi robot thực tế di chuyển tới đó qua Telemetry.
+                // simulatedPositionMap[movingDeviceId] = { x: lastStep.X, y: lastStep.Y };
                 const updatedMeta = { ...movingDeviceMetadata };
 
                 // GIỮ NGUYÊN 0-INDEX THEO YÊU CẦU REVERT
@@ -1008,18 +1033,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateDevicePositions = (devicesList, isFullSync = false) => {
         if (!isMapStaticRendered || isRendering) return;
 
-        // Nếu là bản tin đầy đủ (Full Sync), xóa sạch các máy khách không còn online hoặc đổi floor
+        // --- TỐI ƯU: Bản Full Sync chỉ dọn dẹp các Icon rác (không có trong list mới) ---
         if (isFullSync) {
-            const visibleDeviceIds = new Set(devicesList.map(d => d.id));
+            const visibleIds = new Set();
+            const visibleCodes = new Set();
+            devicesList.forEach(d => {
+                if (d.id) visibleIds.add(d.id);
+                if (d.code) visibleCodes.add(d.code);
+            });
+
             mapGrid.querySelectorAll('.device-icon').forEach(el => {
                 const id = el.getAttribute('data-id');
-                // Xóa nếu ID không có trong list mới, hoặc nếu el là robot-icon/ghost
-                if (!id || !visibleDeviceIds.has(id)) {
+                const label = el.getAttribute('data-label');
+                // Chỉ xóa nếu cả ID và Code đều không có trong danh sách mới
+                if (!visibleIds.has(id) && !visibleCodes.has(label)) {
                     el.remove();
                     if (id && cachedDeviceElements[id]) delete cachedDeviceElements[id];
+                    if (label && cachedDeviceElements[label]) delete cachedDeviceElements[label];
                 }
             });
-            // Xóa luôn các robot-icon (giả lập pathfinding) cũ nếu còn sót
+            
+            // Xóa robot-icon giả lập nếu không phải robot đang di chuyển hiện tại
             mapGrid.querySelectorAll('.robot-icon').forEach(el => {
                 if (el !== currentRobot) el.remove();
             });
@@ -1118,26 +1152,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 typeClass = 'shuttle-device-cargo';
             }
 
-            // [ROBUST ICON MANAGEMENT]
-            // Tìm trong cache dựa trên cả UUID và Device Code để đảm bảo 'Fast Path' từ Redis hoạt động
+            // [ROBUST ICON RE-SYNC] 
+            // 1. Tìm icon hiện có (theo ID cũ UUID hoặc theo Code SHUTTLE-XXX)
             devIcon = cachedDeviceElements[dev.id] || (dev.code ? cachedDeviceElements[dev.code] : null);
 
-            // Xóa triệt để bóng ma nếu tìm thấy bản sao trong DOM (chỉ quét khi cần thiết)
-            if (isFullSync || !devIcon) {
+            // 2. Nếu tìm thấy theo Code nhưng ID trong data-id khác (vd từ UUID sang Code), cập nhật lại
+            if (devIcon) {
+                const currentId = devIcon.getAttribute('data-id');
+                if (currentId !== dev.id) {
+                    devIcon.setAttribute('data-id', dev.id);
+                    cachedDeviceElements[dev.id] = devIcon;
+                }
+            } else if (isFullSync) {
+                // Quét DOM dọn dẹp kỹ hơn nếu là FullSync và vẫn không thấy trong cache
                 const clones = mapGrid.querySelectorAll(`.device-icon[data-id="${dev.id}"], .device-icon[data-label="${dev.code}"]`);
                 if (clones.length > 0) {
                     devIcon = clones[0];
                     cachedDeviceElements[dev.id] = devIcon;
                     if (dev.code) cachedDeviceElements[dev.code] = devIcon;
-                    // Nuke all other clones immediately
+                    // Xóa các bản sao lỗi nếu có
                     for (let i = 1; i < clones.length; i++) clones[i].remove();
                 }
             }
 
 
-            if (simulatedPositionMap[dev.id]) {
-                posX = simulatedPositionMap[dev.id].x;
-                posY = simulatedPositionMap[dev.id].y;
+            // [FIX] ƯU TIÊN Tọa độ Telemetry (Real-time). 
+            // Chỉ sử dụng Simulated Position khi không có bất kỳ nguồn dữ liệu tọa độ thực tế nào 
+            // hoặc khi muốn ép icon về vị trí mong muốn trong lúc mất kết nối.
+            if ((posX === undefined || posY === undefined || (posX === 0 && posY === 0)) && !devIcon) {
+                const simPos = simulatedPositionMap[dev.id] || (dev.code ? simulatedPositionMap[dev.code] : null);
+                if (simPos) {
+                    posX = simPos.x;
+                    posY = simPos.y;
+                }
+            } else if (posX !== undefined && posY !== undefined && !(posX === 0 && posY === 0)) {
+                // Nếu đã bắt được tọa độ thực tế, giải phóng simulated mapping để tránh xung đột
+                delete simulatedPositionMap[dev.id];
+                if (dev.code) delete simulatedPositionMap[dev.code];
             }
 
             let shouldShow = false;
@@ -1472,13 +1523,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 logType = "error";
             }
 
-            // [OPTIMIZATION-2] Double-check to avoid verbatim duplicate logs in the UI
+            // [DYNAMIC ROUTING] Tách log theo quy trình INBOUND / OUTBOUND
             if (message) {
-                const logsContainer = document.getElementById('task-logs');
-                const lastLog = logsContainer ? logsContainer.firstElementChild : null;
+                const purpose = (device?.purpose || '').toUpperCase();
+                const targetBodyId = (purpose === 'OUTBOUND') ? 'task-outbound-body' : 'task-inbound-body';
+                
+                const logsContainer = document.getElementById(targetBodyId);
+                const lastLog = logsContainer ? logsContainer.lastElementChild : null; // Check latest log
                 if (lastLog && lastLog.textContent.includes(message)) return;
 
-                addTaskLog(message, logType);
+                addTaskLog(message, logType, targetBodyId);
                 lastProcessedTasks[taskId] = status;
 
                 // Cập nhật 'Tức thời' trạng thái Robot mang hàng và Location dựa trên Task

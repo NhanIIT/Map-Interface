@@ -48,14 +48,25 @@
 
         <!-- Nhóm các Khung Log bên phải -->
         <div class="side-panel-right">
-            <!-- Khung Log Hoạt Động Task -->
-            <aside class="task-log-panel" id="task-log-panel">
+            <!-- Khung Log Hoạt Động Task: INBOUND -->
+            <aside class="task-log-panel inbound-panel" id="task-inbound-panel">
                 <div class="log-header">
-                    <h3>Task Activity Log</h3>
-                    <button class="clear-log-mini" id="clear-task-log">Xóa Log</button>
+                    <h3>Inbound Log</h3>
+                    <button class="clear-log-mini" id="clear-inbound-log">Xóa</button>
                 </div>
-                <div class="log-body" id="task-log-body">
-                    <div class="log-entry system">Đang chờ task...</div>
+                <div class="log-body" id="task-inbound-body">
+                    <div class="log-entry system">Đang chờ nhập...</div>
+                </div>
+            </aside>
+
+            <!-- Khung Log Hoạt Động Task: OUTBOUND -->
+            <aside class="task-log-panel outbound-panel" id="task-outbound-panel">
+                <div class="log-header">
+                    <h3>Outbound Log</h3>
+                    <button class="clear-log-mini" id="clear-outbound-log">Xóa</button>
+                </div>
+                <div class="log-body" id="task-outbound-body">
+                    <div class="log-entry system">Đang chờ xuất...</div>
                 </div>
             </aside>
 
