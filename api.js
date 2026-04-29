@@ -119,6 +119,34 @@ const MapService = {
     },
 
     /**
+     * Lấy danh sách tower của kho
+     */
+    async fetchTowers(warehouseId) {
+        if (!warehouseId) return null;
+        return this.callApi(`/warehouse/${warehouseId}/tower?limit=100`);
+    },
+
+    /**
+     * Lấy danh sách tower floor của kho
+     */
+    async fetchTowerFloors(warehouseId, towerId = null) {
+        if (!warehouseId) return null;
+        let url = `/warehouse/${warehouseId}/tower-floor?limit=200`;
+        if (towerId) url += `&tower_id=${towerId}`;
+        return this.callApi(url);
+    },
+
+    /**
+     * Lấy danh sách sub-zone của kho
+     */
+    async fetchSubZones(warehouseId, zoneId = null) {
+        if (!warehouseId) return null;
+        let url = `/warehouse/${warehouseId}/sub_zone?limit=500`;
+        if (zoneId) url += `&zone_id=${zoneId}`;
+        return this.callApi(url);
+    },
+
+    /**
      * Lấy danh sách zone type
      */
     async fetchZoneTypes() {
