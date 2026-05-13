@@ -30,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let globalTowerMap = {};
     let globalTowerFloorMap = {};
     let globalZoneMap = {};
-    let globalSubZoneMap = {};
     let globalZoneTypeMap = {};
     let globalDevicesList = []; // Danh sách thiết bị toàn cục
     let globalDeviceTypeMap = {}; // Danh sách loại thiết bị toàn cục
@@ -48,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRendering = false; // Flag chống render chồng chéo
 
     // --- WebSocket Realtime ---
-    const socket = io('http://localhost:8888/realtime');
+    const socket = io('http://10.14.82.11:8888/realtime');
 
     socket.on('connect', () => {
         console.log('✅ [WebSocket] Connected to Realtime Gateway');
@@ -65,6 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('DEVICE_MOVED', (data) => {
         const deviceData = parseKafkaPayload(data);
+        // [DEBUG] Theo dõi trạng thái mang hàng gửi từ Gateway
+        console.log(`[DEVICE_MOVED] Robot: ${deviceData.code} | PkgStatus: ${deviceData.packageStatus} | Status: ${deviceData.status}`);
+        
         // [FIX] Hỗ trợ cả 'id' (database) và 'no' (simulator). Chuẩn hóa 'code' để đồng nhất với globalDevicesList
         const devId = deviceData.id || deviceData.no;
         const devCode = deviceData.code || deviceData.no || devId;
@@ -285,11 +287,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sat = 70;
             light = 50;
             alpha = 1.0;
-        } else if (type === 'sub_zone') {
-            // Sub-Zone là dãy kệ, cần màu rõ ràng cho Legend
-            sat = 70;
-            light = 85;
-            alpha = 1.0;
         } else if (type === 'tower') {
             sat = 40;
             light = 40;
@@ -310,48 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Hàm bao cũ để không làm gãy code hiện tại
     const getZoneColor = (zone) => getEntityColor(zone, 'zone');
 
-    /**
-     * Sub-zone tone within the same zone:
-     * - Keep the same Hue as the parent zone (cohesive)
-     * - Alternate 2 lightness tones (less visually noisy than unique colors)
-     */
-    const getSubZoneTone = (subZone, zoneHue, forcedToneIdx = null) => {
-        if (!subZone) return { wash: 'transparent', solid: 'transparent', border: 'rgba(0,0,0,0.05)' };
 
-        const fallbackHue = getEntityColor(subZone, 'sub_zone').hue;
-        const hue = (typeof zoneHue === 'number' && !Number.isNaN(zoneHue)) ? zoneHue : (typeof fallbackHue === 'number' ? fallbackHue : 210);
-
-        // 2-tone selection:
-        // - Prefer a deterministic, per-zone assignment (forcedToneIdx) to guarantee different tones
-        //   for different sub_zones under the same zone_id.
-        // - Fallback to hashing when no forcedToneIdx is provided.
-        let toneIdx = null;
-        if (forcedToneIdx === 0 || forcedToneIdx === 1) {
-            toneIdx = forcedToneIdx;
-        } else {
-            const key = `${subZone.code || ''}|${subZone.name || ''}|${subZone.id || ''}`.toUpperCase();
-            let hash = 0;
-            for (let i = 0; i < key.length; i++) {
-                hash = (hash << 5) - hash + key.charCodeAt(i);
-                hash |= 0;
-            }
-            toneIdx = Math.abs(hash) % 2;
-        }
-        // Make the 2 tones clearly distinguishable
-        // Tone 0: very light / muted
-        // Tone 1: darker / more saturated
-        const sat = toneIdx === 0 ? 55 : 85;
-        const light = toneIdx === 0 ? 92 : 62;
-        const washAlpha = toneIdx === 0 ? 0.26 : 0.32;
-
-        return {
-            // Used on nodes: low alpha wash for readability
-            wash: `hsla(${hue}, ${sat}%, ${light}%, ${washAlpha})`,
-            // Used on legend: solid for clarity
-            solid: `hsla(${hue}, ${sat}%, ${light}%, 1)`,
-            border: `hsla(${hue}, ${Math.min(95, sat + 10)}%, ${Math.max(18, light - 38)}%, 0.85)`
-        };
-    };
 
     /**
      * Bóc tách tọa độ x, y, z từ qrcode định dạng: [Z]X[XXXX]Y[YYYY]
@@ -419,6 +375,34 @@ document.addEventListener('DOMContentLoaded', () => {
         mapGrid.innerHTML = '';
     });
 
+    const reloadRamBtn = document.getElementById('reload-ram-btn');
+    if (reloadRamBtn) {
+        reloadRamBtn.addEventListener('click', async () => {
+            const whId = warehouseSelect.value;
+            if (!whId) {
+                showToast("Vui lòng chọn kho trước khi nạp lại RAM.");
+                return;
+            }
+
+            try {
+                reloadRamBtn.disabled = true;
+                const originalText = reloadRamBtn.textContent;
+                reloadRamBtn.textContent = "Đang nạp...";
+
+                await MapService.reloadMapState(whId);
+
+                showToast("Đã gửi lệnh nạp lại bản đồ vào RAM thành công.");
+                // Sau khi nạp lại RAM, ta nên render lại lưới để cập nhật trạng thái mới nhất
+                renderGrid(true);
+            } catch (error) {
+                showToast("Lỗi khi nạp lại RAM: " + error.message);
+            } finally {
+                reloadRamBtn.disabled = false;
+                reloadRamBtn.textContent = "Nạp lại RAM";
+            }
+        });
+    }
+
     warehouseSelect.addEventListener('change', async () => {
         const whId = warehouseSelect.value;
         floorSelect.innerHTML = '<option value="">Chọn tầng...</option>';
@@ -472,20 +456,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!whDetail || !whDetail.elements) throw new Error("No WH detail");
             const { column: columns, row: rows } = whDetail.elements;
 
-            const [nodesRes, zonesRes, zoneTypesRes, deviceTypesRes, devicesRes, towersRes, towerFloorsRes, subZonesRes] = await Promise.all([
+            const [nodesRes, zonesRes, zoneTypesRes, deviceTypesRes, devicesRes, towersRes, towerFloorsRes] = await Promise.all([
                 MapService.fetchNodes(whId, floorId),
                 MapService.fetchZones(whId, floorId),
                 MapService.fetchZoneTypes(),
                 MapService.fetchDeviceTypes(),
                 MapService.fetchDevices(whId),
                 MapService.fetchTowers(whId),
-                MapService.fetchTowerFloors(whId),
-                MapService.fetchSubZones(whId)
+                MapService.fetchTowerFloors(whId)
             ]);
 
             const nodes = nodesRes ? (nodesRes.elements || nodesRes.data || []) : [];
             const zones = zonesRes ? (zonesRes.elements || zonesRes.data || []) : [];
-            const subZones = subZonesRes ? (subZonesRes.elements || subZonesRes.data || []) : [];
             const towers = towersRes ? (towersRes.elements || towersRes.data || []) : [];
             const towerFloors = towerFloorsRes ? (towerFloorsRes.elements || towerFloorsRes.data || []) : [];
             const zoneTypesList = zoneTypesRes ? (zoneTypesRes.elements || zoneTypesRes.data || []) : [];
@@ -565,9 +547,6 @@ document.addEventListener('DOMContentLoaded', () => {
             globalZoneMap = {};
             zones.forEach(z => { globalZoneMap[z.id] = z; });
 
-            globalSubZoneMap = {};
-            subZones.forEach(sz => { globalSubZoneMap[sz.id] = sz; });
-
             globalTowerMap = {};
             towers.forEach(t => { globalTowerMap[t.id] = t; });
 
@@ -583,31 +562,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 zoneHueMap.set(z.id, hue);
             });
 
-            // 4.1 Deterministic 2-tone assignment for sub_zones within the same zone_id
-            // Ensures different sub_zone codes under the same zone get different tones.
-            const subZoneToneIndexMap = new Map(); // subZoneId -> 0|1
-            const zoneToSubZones = new Map(); // zoneId -> subZone[]
-            (subZones || []).forEach((sz) => {
-                if (!sz || !sz.id || !sz.zone_id) return;
-                const arr = zoneToSubZones.get(sz.zone_id) || [];
-                arr.push(sz);
-                zoneToSubZones.set(sz.zone_id, arr);
-            });
-            zoneToSubZones.forEach((arr) => {
-                arr.sort((a, b) => {
-                    const ac = String(a.code || a.name || a.id || '').toUpperCase();
-                    const bc = String(b.code || b.name || b.id || '').toUpperCase();
-                    if (ac === bc) return String(a.id).localeCompare(String(b.id));
-                    return ac.localeCompare(bc);
-                });
-                arr.forEach((sz, idx) => {
-                    if (sz && sz.id) subZoneToneIndexMap.set(sz.id, idx % 2);
-                });
-            });
+
 
             // Cập nhật bảng chú thích (Legend)
             updateIconLegend(); // Chú thích biểu tượng
-            updateZoneLegend(zones, subZones, towers, zoneHueMap, subZoneToneIndexMap); // Chú thích màu sắc khu vực
+            updateZoneLegend(zones, towers, zoneHueMap); // Chú thích màu sắc khu vực
 
             const coordToNodeMap = {};
             currentNodesMap = {};
@@ -639,21 +598,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     const tower = (towerFloor && towerFloor.tower_id) ? globalTowerMap[towerFloor.tower_id] : null;
 
                     let location = nodeToLocationMap[node.id] || coordToLocationMap[`${node.x}:${node.y}`];
-                    // Fallback: Nếu Node không có sub_zone_id, thử lấy từ Location tương ứng
-                    let subZone = node.sub_zone_id ? globalSubZoneMap[node.sub_zone_id] : null;
-                    if (!subZone && location && location.sub_zone_id) {
-                        subZone = globalSubZoneMap[location.sub_zone_id];
-                    }
 
                     const towerInfo = tower ? `\nTower: ${tower.name} (${tower.code})` : '';
                     const towerFloorInfo = towerFloor ? `\nTower Floor: ${towerFloor.name} (${towerFloor.code})` : '';
                     const zoneInfo = zone ? `\nZone: ${zone.name} (${zone.code})` : '';
-                    const subZoneInfo = subZone ? `\nSub-Zone: ${subZone.name} (${subZone.code})` : '';
                     const qrInfo = node.qrcode ? `\nQR Code: ${node.qrcode}` : '';
 
                     let occupiedInfo = location ? `\nLocation: ${location.code}\nTrạng thái: ${location.is_occupied ? 'CÓ HÀNG' : 'TRỐNG'}` : '\nChưa có location';
 
-                    nodeHighlight.title = `${node.name} (${node.code})${towerInfo}${towerFloorInfo}${zoneInfo}${subZoneInfo}${qrInfo}${occupiedInfo}\nTọa độ: ${getColumnLabel(node.x - 1)}${node.y}`;
+                    nodeHighlight.title = `${node.name} (${node.code})${towerInfo}${towerFloorInfo}${zoneInfo}${qrInfo}${occupiedInfo}\nTọa độ: ${getColumnLabel(node.x - 1)}${node.y}`;
                     nodeHighlight.style.pointerEvents = 'auto';
                     nodeHighlight.style.cursor = 'pointer';
                     nodeHighlight.style.position = 'relative';
@@ -671,13 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         nodeHighlight.style.borderRadius = '0';
                         nodeHighlight.style.backgroundColor = 'transparent';
 
-                        // 1) Sub-Zone tone (no sub-zone border)
-                        if (subZone) {
-                            const forcedToneIdx = subZoneToneIndexMap.has(subZone.id) ? subZoneToneIndexMap.get(subZone.id) : null;
-                            const subZoneStyle = getSubZoneTone(subZone, zoneStyle.hue, forcedToneIdx);
-                            nodeHighlight.style.backgroundColor = subZoneStyle.wash;
-                            nodeHighlight.classList.add('is-sub-zone');
-                        }
+
 
                         // 2) Collect STORAGE zone bounds for a single, clean boundary overlay
                         if (zone && zone.id) {
@@ -713,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const nodeNameLabel = document.createElement('div');
                     nodeNameLabel.className = 'node-map-label';
                     const nodeShortCode = (node.code || '').replace(/^NODE-/, '');
-                    nodeNameLabel.textContent = subZone ? `${nodeShortCode} (${subZone.name})` : nodeShortCode;
+                    nodeNameLabel.textContent = nodeShortCode;
                     nodeHighlight.appendChild(nodeNameLabel);
 
                     fragment.appendChild(nodeHighlight);
@@ -848,27 +795,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    /**
-     * Highlight hoặc bỏ highlight tất cả các node thuộc một Sub-Zone cụ thể
-     */
-    const highlightSubZoneNodes = (subZoneId, isHighlight) => {
-        const nodes = document.querySelectorAll(`[data-node-id]`);
-        nodes.forEach(nodeEl => {
-            const nodeId = nodeEl.getAttribute('data-node-id');
-            const node = currentNodesMap[nodeId];
-            if (node && node.sub_zone_id === subZoneId) {
-                if (isHighlight) {
-                    nodeEl.style.boxShadow = '0 0 15px rgba(255, 255, 255, 0.8), inset 0 0 0 2px white';
-                    nodeEl.style.zIndex = '10';
-                    nodeEl.style.transform = 'scale(1.05)';
-                } else {
-                    nodeEl.style.boxShadow = '';
-                    nodeEl.style.zIndex = '1';
-                    nodeEl.style.transform = 'scale(1)';
-                }
-            }
-        });
-    };
+
 
     const applyZoom = () => {
         const gridSize = 40 * currentZoom;
@@ -961,7 +888,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const updateZoneLegend = (zones, subZones = [], towers = [], zoneHueMap = null, subZoneToneIndexMap = null) => {
+    const updateZoneLegend = (zones, towers = [], zoneHueMap = null) => {
         const legendBody = document.getElementById('legend-colors-body');
         if (!legendBody) return;
 
@@ -986,50 +913,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // 2. Legend cho Zone
+        // 2. Legend cho Zone (Chỉ hiển thị STORAGE)
         if (zones && zones.length > 0) {
-            zones.forEach(zone => {
-                const hue = zoneHueMap ? zoneHueMap.get(zone.id) : null;
-                const { bg, border } = getEntityColor(zone, 'zone', hue);
-                const item = document.createElement('div');
-                item.className = 'legend-item';
-                item.innerHTML = `
-                    <div class="legend-color-box" style="background-color: ${bg}; border: 1.5px solid ${border}"></div>
-                    <div class="legend-code">ZONE: ${zone.name || zone.code}</div>
-                `;
-                legendBody.appendChild(item);
-            });
-        }
-
-        // 3. Legend cho Sub-Zone
-        if (subZones && subZones.length > 0) {
-            subZones.forEach(sz => {
-                // Tìm parent zone hue từ pre-calculated map
-                const parentZoneHue = (sz.zone_id && zoneHueMap) ? zoneHueMap.get(sz.zone_id) : null;
-                const forcedToneIdx = (subZoneToneIndexMap && subZoneToneIndexMap.has(sz.id)) ? subZoneToneIndexMap.get(sz.id) : null;
-                const { solid: bg, border } = getSubZoneTone(sz, parentZoneHue, forcedToneIdx);
-
-                const item = document.createElement('div');
-                item.className = 'legend-item';
-                item.style.cursor = 'pointer';
-                item.style.transition = 'transform 0.2s';
-                item.innerHTML = `
-                    <div class="legend-color-box" style="background-color: ${bg}; border: 1.5px solid ${border}"></div>
-                    <div class="legend-code" style="font-weight: 800;">SUB: ${sz.name || sz.code}</div>
-                `;
-
-                // Hiệu ứng hover highlight bản đồ
-                item.onmouseenter = () => {
-                    item.style.transform = 'translateY(-2px) scale(1.05)';
-                    highlightSubZoneNodes(sz.id, true);
-                };
-                item.onmouseleave = () => {
-                    item.style.transform = 'none';
-                    highlightSubZoneNodes(sz.id, false);
-                };
-
-                legendBody.appendChild(item);
-            });
+            zones
+                .filter(z => z.zone_type_id === '8caa4e32-3da3-4780-abbe-0b2e38eb1bea')
+                .forEach(zone => {
+                    const hue = zoneHueMap ? zoneHueMap.get(zone.id) : null;
+                    const { bg, border } = getEntityColor(zone, 'zone', hue);
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    item.innerHTML = `
+                        <div class="legend-color-box" style="background-color: ${bg}; border: 1.5px solid ${border}"></div>
+                        <div class="legend-code">ZONE: ${zone.name || zone.code}</div>
+                    `;
+                    legendBody.appendChild(item);
+                });
         }
     };
 
@@ -1069,7 +967,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         row.innerHTML = `<td class="col-date">${dateStr}</td><td class="col-time">${timeStr}</td><td>${message}</td>`;
         body.appendChild(row);
-        body.scrollTop = body.scrollHeight;
+
+        // Tự động cuộn xuống để xem log mới nhất (Giống pathfinding log)
+        const container = body.closest('.scrollable');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
 
         while (body.children.length > 120) body.removeChild(body.firstChild);
     };
@@ -1462,24 +1365,26 @@ document.addEventListener('DOMContentLoaded', () => {
                             (raw.packageStatus !== undefined) ? raw.packageStatus :
                                 (raw.package_status !== undefined) ? raw.package_status :
                                     (dev.package_status !== undefined) ? dev.package_status :
-                                        0
+                                        (dev.package_status === undefined && raw.packageStatus === undefined && meta.packageStatus === undefined) ? 0 : 0
                 );
-                const oldCargoState = deviceWithCargoMap[cargoKey];
+                // [DEBUG] console.log(`Device ${dev.code} pkgStatus: ${nPkgStatus}`);
 
-                // [CARGO ICON RULE] Dựa duy nhất vào packageStatus từ MQTT
-                // packageStatus = 1 -> có hàng (shuttle_box)
-                // packageStatus = 0 -> không có hàng (shuttle_emp)
-                deviceWithCargoMap[cargoKey] = (nPkgStatus === 1);
-
-                // if (oldCargoState !== deviceWithCargoMap[cargoKey]) {
-                //     console.log(`[Icon Debug] Device ${dev.code} Icon Update: pkg[${nPkgStatus}] -> RESULT: ${deviceWithCargoMap[cargoKey]}`);
-                // }
+                // [CARGO ICON RULE] Dựa trên packageStatus từ MQTT/DB
+                // 1 -> có hàng (shuttle_box)
+                // 2 -> lệch hàng (shuttle_misaligned)
+                // 0 -> không có hàng (shuttle_emp)
+                deviceWithCargoMap[cargoKey] = nPkgStatus;
             }
 
-            // GÁN CLASS CUỐI CÙNG: Đảm bảo không chồng lấn giữa 'shuttle-device' và 'shuttle-device-cargo'
+            // GÁN CLASS CUỐI CÙNG: Phân tách 3 trạng thái của Shuttle
             let typeClass = isLifter ? 'lifter-device' : 'shuttle-device';
-            if (isShuttle && deviceWithCargoMap[cargoKey]) {
-                typeClass = 'shuttle-device-cargo';
+            if (isShuttle) {
+                const cargoState = deviceWithCargoMap[cargoKey];
+                if (cargoState === 1) {
+                    typeClass = 'shuttle-device-cargo';
+                } else if (cargoState === 2) {
+                    typeClass = 'shuttle-device-misaligned';
+                }
             }
 
             // [ROBUST ICON RE-SYNC] 
@@ -1688,7 +1593,26 @@ document.addEventListener('DOMContentLoaded', () => {
         // ... (existing code stays)
         if (!isMapStaticRendered || isPathfinding) return;
 
+        const floorText = floorSelect.options[floorSelect.selectedIndex]?.text || '';
+        const floorMatch = floorText.match(/\d+/);
+        const currentFloorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
+
         locations.forEach(loc => {
+            // [CRITICAL FIX] Lọc theo tầng (Z) để tránh 'Ghost Icon' xuất hiện ở các tầng khác cùng tọa độ X,Y
+            let locZ = loc.z;
+            if (locZ === undefined || locZ === null) {
+                // Fallback: Tìm trong map cache nếu loc không có Z
+                const node = currentNodesMap[loc.node_id];
+                if (node) locZ = node.z;
+            }
+
+            // Nếu xác định được Z và khác tầng hiện tại -> Xóa icon cũ (nếu có) và bỏ qua
+            if (locZ !== undefined && locZ !== null && Number(locZ) !== currentFloorZ) {
+                const existingGhost = document.querySelector(`.cargo-icon[data-location-id="${loc.id}"]`);
+                if (existingGhost) existingGhost.remove();
+                return;
+            }
+
             const isOccupied = (loc.is_occupied === true || loc.is_occupied === 1 || String(loc.is_occupied).toLowerCase() === 'true');
             let cargoIcon = document.querySelector(`.cargo-icon[data-location-id="${loc.id}"]`);
 
@@ -1838,7 +1762,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (type === 'UNLOAD') {
                     message = `${devName} đã đặt hàng thành công tại${toSuffix}.`;
                 } else if (type === 'LOAD') {
-                    message = `${devName} đã lấy hàng thành công tại${fromSuffix}.`;
+                    message = `${devName} đã lấy hàng thành công${fromSuffix}.`;
                 } else {
                     message = `${devName} đã hoàn thành nhiệm vụ ${type}.`;
                 }

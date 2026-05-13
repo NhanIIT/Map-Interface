@@ -244,11 +244,7 @@ body {
     margin: 1px;
 }
 
-.map-zone-overlay.is-sub-zone {
-    border-radius: 0;
-    /* sub_zone should not introduce extra borders (avoid visual clutter),
-       but we keep the node's own border (especially for STORAGE squares). */
-}
+
 
 .map-zone-overlay.is-zone-boundary {
     border-style: dashed;
@@ -351,8 +347,8 @@ body {
 
 /* Biểu tượng Device/Robot */
 .device-icon {
-    width: calc(var(--grid-size) * 0.65);
-    height: calc(var(--grid-size) * 0.65);
+    width: calc(var(--grid-size) * 0.80);
+    height: calc(var(--grid-size) * 0.80);
     background-size: 90%;
     background-repeat: no-repeat;
     background-position: center;
@@ -369,9 +365,6 @@ body {
     margin: 0;
     top: 0;
     left: 0;
-    background-color: white;
-    border-radius: 50%;
-    border: 1px solid #a0aec0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -381,14 +374,39 @@ body {
     background-image: url('assets/shuttle_emp.png');
     z-index: 105;
     background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 
 .shuttle-device-cargo {
     background-image: url('assets/shuttle_box.png') !important;
-    background-size: 90% !important;
+    z-index: 106;
     background-color: transparent !important;
     border: none !important;
-    z-index: 106;
+    box-shadow: none !important;
+    width: calc(var(--grid-size) * 0.80) !important;
+    height: calc(var(--grid-size) * 0.80) !important;
+    background-size: 90% !important;
+}
+
+.shuttle-device-misaligned {
+    background-image: url('assets/shuttle_box.png') !important;
+    background-color: rgba(255, 0, 0, 0.2) !important;
+    border: 2px solid #ff0000 !important;
+    z-index: 107;
+    animation: pulse-red 0.8s infinite alternate;
+}
+
+@keyframes pulse-red {
+    from {
+        box-shadow: 0 0 5px #ff0000;
+        filter: brightness(1) sepia(1) hue-rotate(-50deg) saturate(5);
+    }
+
+    to {
+        box-shadow: 0 0 20px #ff0000;
+        filter: brightness(1.2) sepia(1) hue-rotate(-50deg) saturate(10);
+    }
 }
 
 .lifter-device {
@@ -400,7 +418,7 @@ body {
 
 .cargo-icon {
     background-image: url('assets/box_icon.png');
-    background-size: 110%;
+    background-size: 120%;
     background-repeat: no-repeat;
     background-position: center;
     width: calc(var(--grid-size) * 0.6);
@@ -408,9 +426,12 @@ body {
     margin: auto;
     z-index: 10;
     pointer-events: none;
-    background-color: white;
-    border-radius: 50%;
-    border: 1px solid #cbd5e0;
+
+    /* Xóa nền viền nổi được kế thừa từ .zone-icon */
+    background-color: transparent !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 
 /* Biểu tượng đặc thù theo khu vực (Zone Icons) */
@@ -557,10 +578,23 @@ body {
     word-break: break-word;
 }
 
-.log-entry.system { color: #5a67d8; }
-.log-entry.success { color: #2f855a; font-weight: 600; }
-.log-entry.error { color: #c53030; font-weight: 600; }
-.log-entry.path { color: #2c5282; }
+.log-entry.system {
+    color: #5a67d8;
+}
+
+.log-entry.success {
+    color: #2f855a;
+    font-weight: 600;
+}
+
+.log-entry.error {
+    color: #c53030;
+    font-weight: 600;
+}
+
+.log-entry.path {
+    color: #2c5282;
+}
 
 .log-entry .time {
     font-size: 10px;

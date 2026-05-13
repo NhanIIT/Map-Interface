@@ -1,5 +1,5 @@
 // api.js - File gọi API thực tế từ gateway
-const API_BASE_URL = 'http://localhost:8888/api/v2';
+const API_BASE_URL = 'http://10.14.82.11:8888/api/v2';
 
 const MapService = {
     onUnauthorized: null,
@@ -78,6 +78,16 @@ const MapService = {
     },
 
     /**
+     * Nạp lại bản đồ (Đồng bộ DB -> Redis -> RAM)
+     */
+    async reloadMapState(warehouseId) {
+        if (!warehouseId) return null;
+        return this.callApi(`/warehouse/${warehouseId}/map/sync-redis`, {
+            method: 'POST'
+        });
+    },
+
+    /**
      * Lấy danh sách tầng của một kho
      */
     async fetchFloors(warehouseId) {
@@ -90,7 +100,7 @@ const MapService = {
      */
     async fetchZones(warehouseId, floorId) {
         if (!warehouseId || !floorId) return null;
-        return this.callApi(`/warehouse/${warehouseId}/zone?floor_id=${floorId}&limit=500`);
+        return this.callApi(`/warehouse/${warehouseId}/zone?warehouse_floor_id=${floorId}&limit=500`);
     },
 
     /**
@@ -136,15 +146,7 @@ const MapService = {
         return this.callApi(url);
     },
 
-    /**
-     * Lấy danh sách sub-zone của kho
-     */
-    async fetchSubZones(warehouseId, zoneId = null) {
-        if (!warehouseId) return null;
-        let url = `/warehouse/${warehouseId}/sub_zone?limit=500`;
-        if (zoneId) url += `&zone_id=${zoneId}`;
-        return this.callApi(url);
-    },
+
 
     /**
      * Lấy danh sách zone type
@@ -160,7 +162,7 @@ const MapService = {
         try {
             const upperPurpose = (purpose || '').toUpperCase();
             const purposeQuery = upperPurpose ? `&purpose=${upperPurpose}` : '';
-            const response = await fetch(`http://localhost:8082/debug/map-state/${warehouseId}/find-path?start=${startNodeId}&end=${endNodeId}${purposeQuery}`);
+            const response = await fetch(`http://10.14.82.11:8082/debug/map-state/${warehouseId}/find-path?start=${startNodeId}&end=${endNodeId}${purposeQuery}`);
             if (!response.ok) {
                 const err = await response.json();
                 throw new Error(err.message || "Không tìm thấy đường");
@@ -174,7 +176,7 @@ const MapService = {
 
     async reloadMap(warehouseId) {
         try {
-            const response = await fetch(`http://localhost:8082/debug/map-state/${warehouseId}/reload`, { method: 'POST' });
+            const response = await fetch(`http://10.14.82.11:8082/debug/map-state/${warehouseId}/reload`, { method: 'POST' });
             return await response.json();
         } catch (error) {
             console.error("[Reload Map Error]:", error);
