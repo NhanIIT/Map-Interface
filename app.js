@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let globalDevicesList = []; // Danh sách thiết bị toàn cục
     let globalDeviceTypeMap = {}; // Danh sách loại thiết bị toàn cục
     let startNodeData = null; // Lưu thông tin node bắt đầu
+    let globalNodesMapByQr = {}; // Tra cứu node nhanh bằng QR Code trên toàn kho
 
     // Login Elements
     const loginModal = document.getElementById('login-modal');
@@ -315,14 +316,17 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const parseQrCodeCoords = (qrcode) => {
         if (!qrcode || typeof qrcode !== 'string') return null;
-        // [FIX] Cho phép số tầng (\d*) ở đầu là tùy chọn để hỗ trợ cả "1X0009Y0009" và "X0009Y0009"
-        const match = qrcode.match(/^(\d*)X(\d+)Y(\d+)$/i);
-        if (match) {
-            return {
-                z: match[1] ? parseInt(match[1]) : 1, // Default floor 1 if missing
-                x: parseInt(match[2]),
-                y: parseInt(match[3])
-            };
+        
+        // Tìm trực tiếp trong danh sách node toàn cục bằng qrcode (Không phụ thuộc x,y,z cố định)
+        if (typeof globalNodesMapByQr !== 'undefined') {
+            const node = globalNodesMapByQr[qrcode];
+            if (node && node.x !== undefined && node.y !== undefined) {
+                return {
+                    x: node.x,
+                    y: node.y,
+                    z: node.z !== undefined ? node.z : 1
+                };
+            }
         }
         return null;
     };
@@ -407,6 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const whId = warehouseSelect.value;
         floorSelect.innerHTML = '<option value="">Chọn tầng...</option>';
         mapGrid.innerHTML = '';
+        globalNodesMapByQr = {}; // Reset bản đồ QR
         if (!whId) return;
 
         try {
@@ -417,6 +422,31 @@ document.addEventListener('DOMContentLoaded', () => {
                     opt.value = floor.id;
                     opt.textContent = floor.name;
                     floorSelect.appendChild(opt);
+                });
+
+                // Fetch nodes cho TẤT CẢ các tầng để lập bản đồ QR toàn cục trong kho
+                const floorNodesPromises = response.elements.map(floor => 
+                    MapService.fetchNodes(whId, floor.id).then(res => {
+                        const nodes = res ? (res.elements || res.data || []) : [];
+                        nodes.forEach(node => {
+                            const floorText = floor.name || "";
+                            const floorMatch = floorText.match(/\d+/);
+                            const floorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
+                            
+                            node.z = floorZ;
+                            node.warehouse_floor_id = floor.id;
+
+                            if (node.qrcode) {
+                                globalNodesMapByQr[node.qrcode] = node;
+                            }
+                            if (node.qr_code) {
+                                globalNodesMapByQr[node.qr_code] = node;
+                            }
+                        });
+                    }).catch(e => console.error(`Error loading nodes for floor ${floor.id}:`, e))
+                );
+                Promise.all(floorNodesPromises).then(() => {
+                    console.log(`[Nodes Loaded] Tổng số nodes nạp theo QR: ${Object.keys(globalNodesMapByQr).length}`);
                 });
             }
         } catch (error) {
@@ -562,27 +592,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 zoneHueMap.set(z.id, hue);
             });
 
-
-
-            // Cập nhật bảng chú thích (Legend)
-            updateIconLegend(); // Chú thích biểu tượng
-            updateZoneLegend(zones, towers, zoneHueMap); // Chú thích màu sắc khu vực
-
+            // Track nodes by coordinates for neighbor lookups
             const coordToNodeMap = {};
-            currentNodesMap = {};
-
-            // Track bounding boxes of STORAGE zones to draw one clear boundary per zone
-            const storageZoneBoundsMap = new Map(); // zoneId -> { minRow, maxRow, minCol, maxCol, zone }
-
             nodes.forEach(node => {
                 if (node.x !== undefined && node.y !== undefined) {
                     coordToNodeMap[`${node.x}:${node.y}`] = node;
                 }
             });
 
+            // Cập nhật bảng chú thích (Legend)
+            updateIconLegend(); // Chú thích biểu tượng
+            updateZoneLegend(zones, towers, zoneHueMap); // Chú thích màu sắc khu vực
+
+            currentNodesMap = {};
+
             nodes.forEach(node => {
                 if (node.x !== undefined && node.y !== undefined) {
+                    node.z = currentFloorZ;
+                    node.warehouse_floor_id = floorId;
                     currentNodesMap[node.id] = node;
+
+                    // Đồng bộ thêm vào global QR lookup
+                    if (node.qrcode) globalNodesMapByQr[node.qrcode] = node;
+                    if (node.qr_code) globalNodesMapByQr[node.qr_code] = node;
 
                     const row = node.y + 1;
                     const col = node.x + 1;
@@ -615,39 +647,41 @@ document.addEventListener('DOMContentLoaded', () => {
                     const zoneType = (zone && zone.zone_type_id && globalZoneTypeMap[zone.zone_type_id]) ? globalZoneTypeMap[zone.zone_type_id].code : '';
                     const isStorage = zoneType === 'STORAGE';
 
-                    if (isStorage) {
-                        const zoneHue = zone ? zoneHueMap.get(zone.id) : null;
-                        const zoneStyle = getEntityColor(zone, 'zone', zoneHue);
+                        if (isStorage) {
+                            const zoneHue = zone ? zoneHueMap.get(zone.id) : null;
+                            const zoneStyle = getEntityColor(zone, 'zone', zoneHue);
+                            const zid = zone.id;
 
-                        // STORAGE nodes remain square, sub-zones are represented by tone colors.
-                        nodeHighlight.classList.add('is-storage-node');
-                        nodeHighlight.style.borderRadius = '0';
-                        nodeHighlight.style.backgroundColor = 'transparent';
+                            // Chỉ dùng viền màu bao quanh, không bôi màu nền
+                            nodeHighlight.style.backgroundColor = 'transparent';
+                            nodeHighlight.classList.add('is-storage-node');
+                            nodeHighlight.style.borderRadius = '0';
 
+                            // Logic vẽ viền bao quanh cụm node STORAGE khớp chính xác với hình dạng
+                            const nx = node.x, ny = node.y;
+                            const bColor = zoneStyle.border;
+                            const bWidth = '3px';
+                            
+                            const hasT = coordToNodeMap[`${nx}:${ny-1}`]?.zone_id === zid;
+                            const hasB = coordToNodeMap[`${nx}:${ny+1}`]?.zone_id === zid;
+                            const hasL = coordToNodeMap[`${nx-1}:${ny}`]?.zone_id === zid;
+                            const hasR = coordToNodeMap[`${nx+1}:${ny}`]?.zone_id === zid;
 
+                            if (!hasT) nodeHighlight.style.borderTop = `${bWidth} solid ${bColor}`;
+                            if (!hasB) nodeHighlight.style.borderBottom = `${bWidth} solid ${bColor}`;
+                            if (!hasL) nodeHighlight.style.borderLeft = `${bWidth} solid ${bColor}`;
+                            if (!hasR) nodeHighlight.style.borderRight = `${bWidth} solid ${bColor}`;
 
-                        // 2) Collect STORAGE zone bounds for a single, clean boundary overlay
-                        if (zone && zone.id) {
-                            const existing = storageZoneBoundsMap.get(zone.id);
-                            if (!existing) {
-                                storageZoneBoundsMap.set(zone.id, {
-                                    minRow: row,
-                                    maxRow: row,
-                                    minCol: col,
-                                    maxCol: col,
-                                    zone
-                                });
-                            } else {
-                                existing.minRow = Math.min(existing.minRow, row);
-                                existing.maxRow = Math.max(existing.maxRow, row);
-                                existing.minCol = Math.min(existing.minCol, col);
-                                existing.maxCol = Math.max(existing.maxCol, col);
-                            }
-                        }
-                    } else {
-                        // Khu vực không phải STORAGE: Không màu, không viền
-                        nodeHighlight.style.backgroundColor = 'transparent';
-                        nodeHighlight.classList.add('is-non-storage');
+                            // Bo góc mượt mà cho các góc ngoài
+                            const radius = '6px';
+                            if (!hasT && !hasL) nodeHighlight.style.borderTopLeftRadius = radius;
+                            if (!hasT && !hasR) nodeHighlight.style.borderTopRightRadius = radius;
+                            if (!hasB && !hasL) nodeHighlight.style.borderBottomLeftRadius = radius;
+                            if (!hasB && !hasR) nodeHighlight.style.borderBottomRightRadius = radius;
+                        } else {
+                            // Khu vực không phải STORAGE: Không màu, không viền
+                            nodeHighlight.style.backgroundColor = 'transparent';
+                            nodeHighlight.classList.add('is-non-storage');
                     }
 
                     // 3. Tower Border
@@ -760,21 +794,6 @@ document.addEventListener('DOMContentLoaded', () => {
             pathSvg.style.gridArea = '1 / 1 / -1 / -1';
             mapGrid.appendChild(pathSvg);
 
-            // Render one boundary per STORAGE zone for clearer grouping
-            const zoneBoundaryFragment = document.createDocumentFragment();
-            storageZoneBoundsMap.forEach((b) => {
-                const z = b.zone;
-                if (!z || !z.id) return;
-                const zoneHue = zoneHueMap.get(z.id);
-                const zoneStyle = getEntityColor(z, 'zone', zoneHue);
-
-                const boundary = document.createElement('div');
-                boundary.className = 'storage-zone-boundary';
-                boundary.style.gridArea = `${b.minRow} / ${b.minCol} / ${b.maxRow + 1} / ${b.maxCol + 1}`;
-                boundary.style.setProperty('--zone-border', zoneStyle.border);
-                zoneBoundaryFragment.appendChild(boundary);
-            });
-            mapGrid.appendChild(zoneBoundaryFragment);
             mapGrid.appendChild(fragment);
 
             // Render Devices using centralized logic
@@ -1135,12 +1154,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     updatedMeta.y = lastStep.Y;
                 }
 
-                // -> UPDATE QR CODE METADATA
-                const floorText = floorSelect.options[floorSelect.selectedIndex]?.text || "1";
-                const floorMatch = floorText.match(/\d+/);
-                const currentFloorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
-                const padStr = (num) => String(num).padStart(4, '0');
-                const newQrcode = `${currentFloorZ}X${padStr(lastStep.X)}Y${padStr(lastStep.Y)}`;
+                // -> UPDATE QR CODE METADATA (Lấy trực tiếp từ node, không dùng quy luật x, y, z tự chế)
+                const endNodeInfo = currentNodesMap[endId];
+                const newQrcode = endNodeInfo ? (endNodeInfo.qrcode || endNodeInfo.qr_code || '') : '';
                 updatedMeta.qrcode = newQrcode;
 
                 // -> DETERMINE IDLE vs CHARGING STATUS
@@ -1226,8 +1242,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                             delete sm.z;
                             if (sm.position) delete sm.position.z;
-                            const padStr = (num) => String(num).padStart(4, '0');
-                            sm.qrcode = `${targetZ}X${padStr(lastStep.X)}Y${padStr(lastStep.Y)}`;
+                            // Tìm node thực tế tại tọa độ đó ở tầng target và lấy qrcode trực tiếp từ node
+                            const targetNode = Object.values(currentNodesMap).find(n => n.x === lastStep.X && n.y === lastStep.Y);
+                            sm.qrcode = targetNode ? (targetNode.qrcode || targetNode.qr_code || '') : '';
                             
                             await MapService.updateDevice(whId, shuttleToCarry.id, { metadata: sm });
                             addLog(`✅ Đã đưa Shuttle ${shuttleToCarry.code} đến Tầng ${targetZ} thành công!`, "success");
@@ -1508,7 +1525,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // [FAST PATH] Cập nhật vị trí bằng Transform thay vì gridArea để di chuyển mượt mà (sub-pixel)
             const gridSize = 40 * currentZoom; // var(--grid-size)
-            const iconOffset = (gridSize - (gridSize * 0.65)) / 2; // Căn giữa icon (7px nếu grid=40, icon=0.65)
+            const iconSizeRatio = isLifter ? 1.0 : 0.80; 
+            const iconOffset = (gridSize - (gridSize * iconSizeRatio)) / 2; 
 
             // [CRITICAL GUARD] Nếu tọa độ không hợp lệ → giữ nguyên vị trí cũ, KHÔNG nhảy về (0,0)
             const guardX = Number(posX);
@@ -1525,11 +1543,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            // Calculate direction and angle of rotation for shuttle (using shortest path to avoid spin looping)
+            let angle = 0;
+            if (isShuttle) {
+                const prevX = Number(devIcon.getAttribute('data-x'));
+                const prevY = Number(devIcon.getAttribute('data-y'));
+                let currentAngle = 0;
+                let savedAngle = devIcon.getAttribute('data-angle');
+                if (savedAngle !== null) {
+                    currentAngle = Number(savedAngle);
+                }
+
+                let targetAngle = currentAngle; // Default to current angle if no movement
+                if (!isNaN(prevX) && !isNaN(prevY) && !(prevX === 0 && prevY === 0)) {
+                    const dx = posX - prevX;
+                    const dy = posY - prevY;
+                    if (dx > 0) {
+                        targetAngle = 0; // Move Right -> faces Right (0 deg)
+                    } else if (dx < 0) {
+                        targetAngle = 180; // Move Left -> faces Left (180 deg)
+                    } else if (dy > 0) {
+                        targetAngle = 90; // Move Down -> faces Down (90 deg)
+                    } else if (dy < 0) {
+                        targetAngle = 270; // Move Up -> faces Up (270 deg)
+                    }
+                }
+
+                // Find closest equivalent angle to prevent spinning looping (shortest path rotation)
+                let diff = (targetAngle - currentAngle) % 360;
+                if (diff > 180) {
+                    diff -= 360;
+                } else if (diff < -180) {
+                    diff += 360;
+                }
+                angle = currentAngle + diff;
+                devIcon.setAttribute('data-angle', angle);
+
+                // Clean up any old head indicator if present
+                const headEl = devIcon.querySelector('.shuttle-head');
+                if (headEl) headEl.remove();
+            } else {
+                const headEl = devIcon.querySelector('.shuttle-head');
+                if (headEl) headEl.remove();
+            }
+
             const pixelX = posX * gridSize + iconOffset;
             const pixelY = posY * gridSize + iconOffset;
 
             // Sử dụng transform để kích hoạt tăng tốc phần cứng (GPU) cho animation
-            const newTransform = `translate(${pixelX}px, ${pixelY}px)`;
+            const newTransform = isShuttle ? `translate(${pixelX}px, ${pixelY}px) rotate(${angle}deg)` : `translate(${pixelX}px, ${pixelY}px)`;
             if (devIcon.style.transform !== newTransform) {
                 devIcon.style.transform = newTransform;
 
