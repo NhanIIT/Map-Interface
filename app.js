@@ -27,11 +27,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastProcessedTasks = {};
 
     // Global Maps
+    let globalTowerMap = {};
+    let globalTowerFloorMap = {};
     let globalZoneMap = {};
     let globalZoneTypeMap = {};
     let globalDevicesList = []; // Danh sách thiết bị toàn cục
     let globalDeviceTypeMap = {}; // Danh sách loại thiết bị toàn cục
     let startNodeData = null; // Lưu thông tin node bắt đầu
+    let globalNodesMapByQr = {}; // Tra cứu node nhanh bằng QR Code trên toàn kho
 
     // Login Elements
     const loginModal = document.getElementById('login-modal');
@@ -45,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRendering = false; // Flag chống render chồng chéo
 
     // --- WebSocket Realtime ---
-    const socket = io('http://localhost:8888/realtime');
+    const socket = io('http://10.14.82.11:8888/realtime');
 
     socket.on('connect', () => {
         console.log('✅ [WebSocket] Connected to Realtime Gateway');
@@ -62,6 +65,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('DEVICE_MOVED', (data) => {
         const deviceData = parseKafkaPayload(data);
+        // [DEBUG] Theo dõi trạng thái mang hàng gửi từ Gateway
+        console.log(`[DEVICE_MOVED] Robot: ${deviceData.code} | PkgStatus: ${deviceData.packageStatus} | Status: ${deviceData.status}`);
+        
         // [FIX] Hỗ trợ cả 'id' (database) và 'no' (simulator). Chuẩn hóa 'code' để đồng nhất với globalDevicesList
         const devId = deviceData.id || deviceData.no;
         const devCode = deviceData.code || deviceData.no || devId;
@@ -156,6 +162,88 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const initZoomDrag = () => {
+        const zoomBox = document.querySelector('.zoom-controls');
+        if (!zoomBox) return;
+
+        const storageKey = 'ui.zoomControls.position';
+
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+            try {
+                const pos = JSON.parse(saved);
+                if (typeof pos.left === 'number' && typeof pos.top === 'number') {
+                    zoomBox.style.left = `${pos.left}px`;
+                    zoomBox.style.top = `${pos.top}px`;
+                    zoomBox.style.right = 'auto';
+                    zoomBox.style.bottom = 'auto';
+                }
+            } catch (e) {
+                localStorage.removeItem(storageKey);
+            }
+        }
+
+        let dragging = false;
+        let startX = 0;
+        let startY = 0;
+        let originLeft = 0;
+        let originTop = 0;
+
+        const getPoint = (evt) => {
+            if (evt.touches && evt.touches.length) {
+                return { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
+            }
+            return { x: evt.clientX, y: evt.clientY };
+        };
+
+        const onStart = (evt) => {
+            if (evt.type === 'mousedown' && evt.button !== 0) return;
+
+            const target = evt.target;
+            if (target && target.classList.contains('zoom-btn')) return;
+
+            const point = getPoint(evt);
+            const rect = zoomBox.getBoundingClientRect();
+            dragging = true;
+            startX = point.x;
+            startY = point.y;
+            originLeft = rect.left;
+            originTop = rect.top;
+            zoomBox.classList.add('dragging');
+            evt.preventDefault();
+        };
+
+        const onMove = (evt) => {
+            if (!dragging) return;
+            const point = getPoint(evt);
+            const dx = point.x - startX;
+            const dy = point.y - startY;
+
+            zoomBox.style.left = `${originLeft + dx}px`;
+            zoomBox.style.top = `${originTop + dy}px`;
+            zoomBox.style.right = 'auto';
+            zoomBox.style.bottom = 'auto';
+        };
+
+        const onEnd = () => {
+            if (!dragging) return;
+            dragging = false;
+            zoomBox.classList.remove('dragging');
+
+            const rect = zoomBox.getBoundingClientRect();
+            localStorage.setItem(storageKey, JSON.stringify({ left: rect.left, top: rect.top }));
+        };
+
+        zoomBox.addEventListener('mousedown', onStart);
+        zoomBox.addEventListener('touchstart', onStart, { passive: false });
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('mouseup', onEnd);
+        window.addEventListener('touchend', onEnd);
+    };
+
+    initZoomDrag();
+
     MapService.onUnauthorized = () => {
         toggleLoginModal(true);
     };
@@ -171,36 +259,56 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * Trả về màu sắc ĐỘC NHẤT cho mỗi zone_id, đảm bảo phân tách rõ rệt các khu vực quan trọng
+     * Trả về màu sắc ĐỘC NHẤT cho mỗi thực thể (Zone, SubZone, Tower, ...)
+     * Đảm bảo phân tách rõ rệt các khu vực quan trọng
      */
-    const getZoneColor = (zone) => {
-        if (!zone || !zone.id) return { bg: 'rgba(236, 240, 241, 0.2)', border: 'rgba(189, 195, 199, 0.4)' };
+    const getEntityColor = (entity, type = 'zone', baseHue = null) => {
+        if (!entity || !entity.id) return { bg: 'transparent', border: 'rgba(0,0,0,0.05)' };
 
-        // 1. Hash ID kết hợp thêm muối (Salt) từ tên và Code của Zone để tối đa sự khác biệt
+        // 1. Hash ID
         let hash = 0;
-        const name = (zone.name || '').toUpperCase();
-        const code = (zone.code || '').toUpperCase();
-        const str = zone.id + name + code;
+        const name = (entity.name || '').toUpperCase();
+        const code = (entity.code || '').toUpperCase();
+        const str = entity.id + name + code;
         for (let i = 0; i < str.length; i++) {
             hash = (hash << 5) - hash + str.charCodeAt(i);
             hash |= 0;
         }
 
-        // 2. Sử dụng Golden Ratio để phân bổ sắc độ (Hue) đều trên vòng tròn màu
+        // 2. Sử dụng Golden Ratio để phân bổ sắc độ (Hue)
         const phi = 0.618033988749895;
-        let h = (Math.abs(hash) * phi) % 1;
-        const hue = Math.floor(h * 360);
+        let h = baseHue !== null ? (baseHue / 360) : ((Math.abs(hash) * phi) % 1);
+        const hue = baseHue !== null ? baseHue : Math.floor(h * 360);
 
-        // 3. Biến thiên Độ bão hòa và Độ sáng dựa trên hash để tránh trùng lặp 
-        // ngay cả khi Hue tình cờ ở gần nhau
-        const sat = 75 + (Math.abs(hash % 15)); // 75-90%
-        const light = 55 + (Math.abs((hash >> 4) % 15)); // 55-70%
+        // 3. Quy chuẩn màu sắc hiện đại cho Warehouse
+        let sat, light, alpha;
+
+        if (type === 'zone') {
+            // Zone STORAGE sẽ có viền đậm, Zone khác ẩn đi
+            sat = 70;
+            light = 50;
+            alpha = 1.0;
+        } else if (type === 'tower') {
+            sat = 40;
+            light = 40;
+            alpha = 0.15;
+        } else {
+            sat = 50;
+            light = 70;
+            alpha = 0.3;
+        }
 
         return {
-            bg: `hsla(${hue}, ${sat}%, ${light}%, 0.35)`,
-            border: `hsla(${hue}, ${sat}%, ${light - 25}%, 1)`
+            bg: `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`,
+            border: `hsla(${hue}, ${sat + 10}%, ${light - 20}%, 0.8)`,
+            hue: hue
         };
     };
+
+    // Hàm bao cũ để không làm gãy code hiện tại
+    const getZoneColor = (zone) => getEntityColor(zone, 'zone');
+
+
 
     /**
      * Bóc tách tọa độ x, y, z từ qrcode định dạng: [Z]X[XXXX]Y[YYYY]
@@ -208,14 +316,17 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const parseQrCodeCoords = (qrcode) => {
         if (!qrcode || typeof qrcode !== 'string') return null;
-        // [FIX] Cho phép số tầng (\d*) ở đầu là tùy chọn để hỗ trợ cả "1X0009Y0009" và "X0009Y0009"
-        const match = qrcode.match(/^(\d*)X(\d+)Y(\d+)$/i);
-        if (match) {
-            return {
-                z: match[1] ? parseInt(match[1]) : 1, // Default floor 1 if missing
-                x: parseInt(match[2]),
-                y: parseInt(match[3])
-            };
+        
+        // Tìm trực tiếp trong danh sách node toàn cục bằng qrcode (Không phụ thuộc x,y,z cố định)
+        if (typeof globalNodesMapByQr !== 'undefined') {
+            const node = globalNodesMapByQr[qrcode];
+            if (node && node.x !== undefined && node.y !== undefined) {
+                return {
+                    x: node.x,
+                    y: node.y,
+                    z: node.z !== undefined ? node.z : 1
+                };
+            }
         }
         return null;
     };
@@ -268,10 +379,39 @@ document.addEventListener('DOMContentLoaded', () => {
         mapGrid.innerHTML = '';
     });
 
+    const reloadRamBtn = document.getElementById('reload-ram-btn');
+    if (reloadRamBtn) {
+        reloadRamBtn.addEventListener('click', async () => {
+            const whId = warehouseSelect.value;
+            if (!whId) {
+                showToast("Vui lòng chọn kho trước khi nạp lại RAM.");
+                return;
+            }
+
+            try {
+                reloadRamBtn.disabled = true;
+                const originalText = reloadRamBtn.textContent;
+                reloadRamBtn.textContent = "Đang nạp...";
+
+                await MapService.reloadMapState(whId);
+
+                showToast("Đã gửi lệnh nạp lại bản đồ vào RAM thành công.");
+                // Sau khi nạp lại RAM, ta nên render lại lưới để cập nhật trạng thái mới nhất
+                renderGrid(true);
+            } catch (error) {
+                showToast("Lỗi khi nạp lại RAM: " + error.message);
+            } finally {
+                reloadRamBtn.disabled = false;
+                reloadRamBtn.textContent = "Nạp lại RAM";
+            }
+        });
+    }
+
     warehouseSelect.addEventListener('change', async () => {
         const whId = warehouseSelect.value;
         floorSelect.innerHTML = '<option value="">Chọn tầng...</option>';
         mapGrid.innerHTML = '';
+        globalNodesMapByQr = {}; // Reset bản đồ QR
         if (!whId) return;
 
         try {
@@ -282,6 +422,31 @@ document.addEventListener('DOMContentLoaded', () => {
                     opt.value = floor.id;
                     opt.textContent = floor.name;
                     floorSelect.appendChild(opt);
+                });
+
+                // Fetch nodes cho TẤT CẢ các tầng để lập bản đồ QR toàn cục trong kho
+                const floorNodesPromises = response.elements.map(floor => 
+                    MapService.fetchNodes(whId, floor.id).then(res => {
+                        const nodes = res ? (res.elements || res.data || []) : [];
+                        nodes.forEach(node => {
+                            const floorText = floor.name || "";
+                            const floorMatch = floorText.match(/\d+/);
+                            const floorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
+                            
+                            node.z = floorZ;
+                            node.warehouse_floor_id = floor.id;
+
+                            if (node.qrcode) {
+                                globalNodesMapByQr[node.qrcode] = node;
+                            }
+                            if (node.qr_code) {
+                                globalNodesMapByQr[node.qr_code] = node;
+                            }
+                        });
+                    }).catch(e => console.error(`Error loading nodes for floor ${floor.id}:`, e))
+                );
+                Promise.all(floorNodesPromises).then(() => {
+                    console.log(`[Nodes Loaded] Tổng số nodes nạp theo QR: ${Object.keys(globalNodesMapByQr).length}`);
                 });
             }
         } catch (error) {
@@ -321,16 +486,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!whDetail || !whDetail.elements) throw new Error("No WH detail");
             const { column: columns, row: rows } = whDetail.elements;
 
-            const [nodesRes, zonesRes, zoneTypesRes, deviceTypesRes, devicesRes] = await Promise.all([
+            const [nodesRes, zonesRes, zoneTypesRes, deviceTypesRes, devicesRes, towersRes, towerFloorsRes] = await Promise.all([
                 MapService.fetchNodes(whId, floorId),
                 MapService.fetchZones(whId, floorId),
                 MapService.fetchZoneTypes(),
                 MapService.fetchDeviceTypes(),
-                MapService.fetchDevices(whId)
+                MapService.fetchDevices(whId),
+                MapService.fetchTowers(whId),
+                MapService.fetchTowerFloors(whId)
             ]);
 
             const nodes = nodesRes ? (nodesRes.elements || nodesRes.data || []) : [];
             const zones = zonesRes ? (zonesRes.elements || zonesRes.data || []) : [];
+            const towers = towersRes ? (towersRes.elements || towersRes.data || []) : [];
+            const towerFloors = towerFloorsRes ? (towerFloorsRes.elements || towerFloorsRes.data || []) : [];
             const zoneTypesList = zoneTypesRes ? (zoneTypesRes.elements || zoneTypesRes.data || []) : [];
             const deviceTypesList = deviceTypesRes ? (deviceTypesRes.elements || deviceTypesRes.data || []) : [];
             const devicesList = devicesRes ? (devicesRes.elements || devicesRes.data || []) : [];
@@ -408,18 +577,44 @@ document.addEventListener('DOMContentLoaded', () => {
             globalZoneMap = {};
             zones.forEach(z => { globalZoneMap[z.id] = z; });
 
+            globalTowerMap = {};
+            towers.forEach(t => { globalTowerMap[t.id] = t; });
+
+            globalTowerFloorMap = {};
+            towerFloors.forEach(tf => { globalTowerFloorMap[tf.id] = tf; });
+
+            // 4. Pre-calculate Zone Hues for distinct colors (Tối ưu màu sắc khác biệt)
+            const zoneHueMap = new Map();
+            const sortedZones = [...zones].sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+            sortedZones.forEach((z, i) => {
+                // Sử dụng Golden Angle (xấp xỉ 137.5 độ) để phân bổ màu sắc tối ưu trên vòng tròn màu
+                const hue = (i * 137.5) % 360;
+                zoneHueMap.set(z.id, hue);
+            });
+
+            // Track nodes by coordinates for neighbor lookups
+            const coordToNodeMap = {};
+            nodes.forEach(node => {
+                if (node.x !== undefined && node.y !== undefined) {
+                    coordToNodeMap[`${node.x}:${node.y}`] = node;
+                }
+            });
+
             // Cập nhật bảng chú thích (Legend)
             updateIconLegend(); // Chú thích biểu tượng
-            updateZoneLegend(zones); // Chú thích màu sắc khu vực
+            updateZoneLegend(zones, towers, zoneHueMap); // Chú thích màu sắc khu vực
 
-            const coordToNodeMap = {};
             currentNodesMap = {};
 
             nodes.forEach(node => {
                 if (node.x !== undefined && node.y !== undefined) {
+                    node.z = currentFloorZ;
+                    node.warehouse_floor_id = floorId;
                     currentNodesMap[node.id] = node;
-                    // SỬ DỤNG TRỰC TIẾP TỌA ĐỘ 1-INDEX TỪ API
-                    coordToNodeMap[`${node.x}:${node.y}`] = node;
+
+                    // Đồng bộ thêm vào global QR lookup
+                    if (node.qrcode) globalNodesMapByQr[node.qrcode] = node;
+                    if (node.qr_code) globalNodesMapByQr[node.qr_code] = node;
 
                     const row = node.y + 1;
                     const col = node.x + 1;
@@ -431,26 +626,75 @@ document.addEventListener('DOMContentLoaded', () => {
                     nodeHighlight.setAttribute('data-node-id', node.id);
 
                     const zone = node.zone_id ? globalZoneMap[node.zone_id] : null;
-                    const zoneInfo = zone ? `\nKhu vực: ${zone.name} (${zone.code})` : '';
-                    const qrInfo = node.qrcode ? `\nQR Code: ${node.qrcode}` : '';
+                    const towerFloor = node.tower_floor_id ? globalTowerFloorMap[node.tower_floor_id] : null;
+                    const tower = (towerFloor && towerFloor.tower_id) ? globalTowerMap[towerFloor.tower_id] : null;
 
                     let location = nodeToLocationMap[node.id] || coordToLocationMap[`${node.x}:${node.y}`];
+
+                    const towerInfo = tower ? `\nTower: ${tower.name} (${tower.code})` : '';
+                    const towerFloorInfo = towerFloor ? `\nTower Floor: ${towerFloor.name} (${towerFloor.code})` : '';
+                    const zoneInfo = zone ? `\nZone: ${zone.name} (${zone.code})` : '';
+                    const qrInfo = node.qrcode ? `\nQR Code: ${node.qrcode}` : '';
+
                     let occupiedInfo = location ? `\nLocation: ${location.code}\nTrạng thái: ${location.is_occupied ? 'CÓ HÀNG' : 'TRỐNG'}` : '\nChưa có location';
 
-                    nodeHighlight.title = `${node.name} (${node.code})${zoneInfo}${qrInfo}${occupiedInfo}\nTọa độ: ${getColumnLabel(node.x - 1)}${node.y}`;
+                    nodeHighlight.title = `${node.name} (${node.code})${towerInfo}${towerFloorInfo}${zoneInfo}${qrInfo}${occupiedInfo}\nTọa độ: ${getColumnLabel(node.x - 1)}${node.y}`;
                     nodeHighlight.style.pointerEvents = 'auto';
                     nodeHighlight.style.cursor = 'pointer';
                     nodeHighlight.style.position = 'relative';
 
-                    // Áp dụng màu sắc đồng bộ theo zone_id
-                    const { bg, border } = getZoneColor(zone);
-                    nodeHighlight.style.backgroundColor = bg;
-                    nodeHighlight.style.borderColor = border;
+                    // Lấy ZoneType
+                    const zoneType = (zone && zone.zone_type_id && globalZoneTypeMap[zone.zone_type_id]) ? globalZoneTypeMap[zone.zone_type_id].code : '';
+                    const isStorage = zoneType === 'STORAGE';
 
-                    // Thêm label tên node (bỏ phần NODE- từ code)
+                        if (isStorage) {
+                            const zoneHue = zone ? zoneHueMap.get(zone.id) : null;
+                            const zoneStyle = getEntityColor(zone, 'zone', zoneHue);
+                            const zid = zone.id;
+
+                            // Chỉ dùng viền màu bao quanh, không bôi màu nền
+                            nodeHighlight.style.backgroundColor = 'transparent';
+                            nodeHighlight.classList.add('is-storage-node');
+                            nodeHighlight.style.borderRadius = '0';
+
+                            // Logic vẽ viền bao quanh cụm node STORAGE khớp chính xác với hình dạng
+                            const nx = node.x, ny = node.y;
+                            const bColor = zoneStyle.border;
+                            const bWidth = '3px';
+                            
+                            const hasT = coordToNodeMap[`${nx}:${ny-1}`]?.zone_id === zid;
+                            const hasB = coordToNodeMap[`${nx}:${ny+1}`]?.zone_id === zid;
+                            const hasL = coordToNodeMap[`${nx-1}:${ny}`]?.zone_id === zid;
+                            const hasR = coordToNodeMap[`${nx+1}:${ny}`]?.zone_id === zid;
+
+                            if (!hasT) nodeHighlight.style.borderTop = `${bWidth} solid ${bColor}`;
+                            if (!hasB) nodeHighlight.style.borderBottom = `${bWidth} solid ${bColor}`;
+                            if (!hasL) nodeHighlight.style.borderLeft = `${bWidth} solid ${bColor}`;
+                            if (!hasR) nodeHighlight.style.borderRight = `${bWidth} solid ${bColor}`;
+
+                            // Bo góc mượt mà cho các góc ngoài
+                            const radius = '6px';
+                            if (!hasT && !hasL) nodeHighlight.style.borderTopLeftRadius = radius;
+                            if (!hasT && !hasR) nodeHighlight.style.borderTopRightRadius = radius;
+                            if (!hasB && !hasL) nodeHighlight.style.borderBottomLeftRadius = radius;
+                            if (!hasB && !hasR) nodeHighlight.style.borderBottomRightRadius = radius;
+                        } else {
+                            // Khu vực không phải STORAGE: Không màu, không viền
+                            nodeHighlight.style.backgroundColor = 'transparent';
+                            nodeHighlight.classList.add('is-non-storage');
+                    }
+
+                    // 3. Tower Border
+                    // IMPORTANT: Do NOT draw tower border per-node.
+                    // Doing so makes shared edges double-thick and introduces strong colored separators.
+                    // For the requested UX, STORAGE nodes should keep only the subtle black separators.
+                    nodeHighlight.style.boxShadow = 'none';
+
+                    // Thêm label tên node và sub-zone (hiển thị khi hover)
                     const nodeNameLabel = document.createElement('div');
                     nodeNameLabel.className = 'node-map-label';
-                    nodeNameLabel.textContent = (node.code || '').replace(/^NODE-/, '');
+                    const nodeShortCode = (node.code || '').replace(/^NODE-/, '');
+                    nodeNameLabel.textContent = nodeShortCode;
                     nodeHighlight.appendChild(nodeNameLabel);
 
                     fragment.appendChild(nodeHighlight);
@@ -496,36 +740,33 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (node.id === startNodeId) nodeHighlight.classList.add('node-selected-start');
                     if (node.id === endNodeId) nodeHighlight.classList.add('node-selected-end');
 
-                    let zoneTypeCode = (zone && zone.zone_type_id && globalZoneTypeMap[zone.zone_type_id]) ? globalZoneTypeMap[zone.zone_type_id].code : '';
-                    if (zone && (zone.code.includes('CHARGING') || zone.name.includes('CHARGING'))) {
-                        const icon = document.createElement('div');
-                        icon.className = 'zone-icon charging-icon small-icon';
-                        icon.style.gridArea = gridPos;
-                        fragment.appendChild(icon);
-                    } else if (zoneTypeCode.includes('WAITING') || zoneTypeCode.includes('WAIT')) {
-                        const icon = document.createElement('div');
-                        icon.className = 'zone-icon waiting-icon small-icon';
-                        icon.style.gridArea = gridPos;
-                        fragment.appendChild(icon);
-                    } else if (zoneTypeCode.includes('LIFTER')) {
-                        const icon = document.createElement('div');
-                        icon.className = 'zone-icon lifter-icon small-icon';
-                        icon.style.gridArea = gridPos;
-                        fragment.appendChild(icon);
+                    // Zone icons based on zone_type (special areas)
+                    // Applies to any node whose zone has these zone_type codes.
+                    const zoneTypeCode = (zone && zone.zone_type_id && globalZoneTypeMap[zone.zone_type_id])
+                        ? String(globalZoneTypeMap[zone.zone_type_id].code || '')
+                        : '';
+                    const normalizedZoneType = zoneTypeCode.toUpperCase();
+                    const normalizedZoneCode = (zone && zone.code) ? String(zone.code).toUpperCase() : '';
+                    const normalizedZoneName = (zone && zone.name) ? String(zone.name).toUpperCase() : '';
+
+                    let zoneIconClass = '';
+                    if (normalizedZoneType.includes('CHARGING') || normalizedZoneCode.includes('CHARGING') || normalizedZoneName.includes('CHARGING')) {
+                        zoneIconClass = 'charging-icon';
+                    } else if (normalizedZoneType.includes('PARKING') || normalizedZoneCode.includes('PARKING') || normalizedZoneName.includes('PARKING')) {
+                        zoneIconClass = 'parking-icon';
+                    } else if (normalizedZoneType.includes('WAITING') || normalizedZoneType.includes('WAIT')) {
+                        zoneIconClass = 'waiting-icon';
+                    } else if (normalizedZoneType.includes('LIFTER')) {
+                        zoneIconClass = 'lifter-icon';
+                    } else if (normalizedZoneType.includes('INBOUND')) {
+                        zoneIconClass = 'import-icon';
+                    } else if (normalizedZoneType.includes('OUTBOUND')) {
+                        zoneIconClass = 'export-icon';
                     }
 
-                    // Thêm icon Import cho khu vực KV_INBOUND
-                    if (zone && zone.code === 'KV_INBOUND') {
+                    if (zoneIconClass) {
                         const icon = document.createElement('div');
-                        icon.className = 'zone-icon import-icon small-icon';
-                        icon.style.gridArea = gridPos;
-                        fragment.appendChild(icon);
-                    }
-
-                    // Thêm icon Export cho khu vực KV_OUTBOUND
-                    if (zone && zone.code === 'KV_OUTBOUND') {
-                        const icon = document.createElement('div');
-                        icon.className = 'zone-icon export-icon small-icon';
+                        icon.className = `zone-icon ${zoneIconClass} small-icon`;
                         icon.style.gridArea = gridPos;
                         fragment.appendChild(icon);
                     }
@@ -539,6 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         icon.setAttribute('data-location-id', location.id || location._id);
                         fragment.appendChild(icon);
                     }
+
                 }
             });
 
@@ -551,6 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
             pathSvg.setAttribute("class", "path-svg");
             pathSvg.style.gridArea = '1 / 1 / -1 / -1';
             mapGrid.appendChild(pathSvg);
+
             mapGrid.appendChild(fragment);
 
             // Render Devices using centralized logic
@@ -568,10 +811,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             isRendering = false;
             if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
-            // Sau khi render xong 500ms, gọi một bản FullSync để dọn dẹp tuyệt đối các icon rác
-            setTimeout(() => refreshCargo(), 500);
         }
     };
+
+
 
     const applyZoom = () => {
         const gridSize = 40 * currentZoom;
@@ -619,7 +862,9 @@ document.addEventListener('DOMContentLoaded', () => {
             { class: 'shuttle-device', name: 'Robot Shuttle', isDevice: true },
             { class: 'lifter-device', name: 'Thang máy (Lifter)', isDevice: true },
             { class: 'charging-icon', name: 'Trạm sạc', isZone: true },
+            { class: 'parking-icon', name: 'Khu vực đỗ (Parking)', isZone: true },
             { class: 'waiting-icon', name: 'Khu vực chờ', isZone: true },
+            { class: 'lifter-icon', name: 'Lifter Zone', isZone: true },
             { class: 'import-icon', name: 'Nhập hàng (Inbound)', isZone: true },
             { class: 'export-icon', name: 'Xuất hàng (Outbound)', isZone: true },
             { class: 'cargo-icon', name: 'Ô có hàng (Box)', isCargo: true }
@@ -662,38 +907,47 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const updateZoneLegend = (zones) => {
+    const updateZoneLegend = (zones, towers = [], zoneHueMap = null) => {
         const legendBody = document.getElementById('legend-colors-body');
         if (!legendBody) return;
 
-        if (!zones || zones.length === 0) {
-            legendBody.innerHTML = '<div class="legend-item-placeholder">Không có zone nào...</div>';
+        if ((!zones || zones.length === 0) && (!towers || towers.length === 0)) {
+            legendBody.innerHTML = '<div class="legend-item-placeholder">Không có khu vực nào...</div>';
             return;
         }
 
-        const uniqueZones = [];
-        const seenIds = new Set();
-        zones.forEach(z => {
-            if (!seenIds.has(z.id)) {
-                seenIds.add(z.id);
-                uniqueZones.push(z);
-            }
-        });
-
-        uniqueZones.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
         legendBody.innerHTML = '';
-        uniqueZones.forEach(zone => {
-            const { bg, border } = getZoneColor(zone);
-            const item = document.createElement('div');
-            item.className = 'legend-item';
-            item.innerHTML = `
-                <div class="legend-color-box" style="background-color: ${bg}; border: 1.5px solid ${border}"></div>
-                <div class="legend-name" title="${zone.name}">${zone.name}</div>
-                <div class="legend-code">${zone.code || ''}</div>
-            `;
-            legendBody.appendChild(item);
-        });
+
+        // 1. Legend cho Tower (Border)
+        if (towers && towers.length > 0) {
+            towers.forEach(tower => {
+                const { border } = getEntityColor(tower, 'tower');
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `
+                    <div class="legend-color-box" style="background: transparent; border: 2.5px solid ${border}; border-radius: 4px;"></div>
+                    <div class="legend-code" style="color: ${border}; text-decoration: underline;">TWR: ${tower.code}</div>
+                `;
+                legendBody.appendChild(item);
+            });
+        }
+
+        // 2. Legend cho Zone (Chỉ hiển thị STORAGE)
+        if (zones && zones.length > 0) {
+            zones
+                .filter(z => z.zone_type_id === '8caa4e32-3da3-4780-abbe-0b2e38eb1bea')
+                .forEach(zone => {
+                    const hue = zoneHueMap ? zoneHueMap.get(zone.id) : null;
+                    const { bg, border } = getEntityColor(zone, 'zone', hue);
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    item.innerHTML = `
+                        <div class="legend-color-box" style="background-color: ${bg}; border: 1.5px solid ${border}"></div>
+                        <div class="legend-code">ZONE: ${zone.name || zone.code}</div>
+                    `;
+                    legendBody.appendChild(item);
+                });
+        }
     };
 
     const addLog = (message, type = 'system', details = '') => {
@@ -715,35 +969,36 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Ghi Log cho Task Activity (Hỗ trợ phân luồng Inbound/Outbound)
      */
-    const addTaskLog = (message, type = 'info', targetBodyId = 'task-inbound-body') => {
-        const body = document.getElementById(targetBodyId);
+    const addTaskLog = (message, type = 'info') => {
+        const body = document.getElementById('task-log-body');
         if (!body) return;
 
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
+        const row = document.createElement('tr');
+        row.className = `task-log-row ${type}`;
 
         const now = new Date();
+        const dateStr = now.getDate().toString().padStart(2, '0') + '/' +
+            (now.getMonth() + 1).toString().padStart(2, '0') + '/' +
+            now.getFullYear();
         const timeStr = now.getHours().toString().padStart(2, '0') + ':' +
             now.getMinutes().toString().padStart(2, '0') + ':' +
             now.getSeconds().toString().padStart(2, '0');
 
-        entry.innerHTML = `<span class="time">[${timeStr}]</span> ${message}`;
-        body.appendChild(entry);
-        body.scrollTop = body.scrollHeight;
+        row.innerHTML = `<td class="col-date">${dateStr}</td><td class="col-time">${timeStr}</td><td>${message}</td>`;
+        body.appendChild(row);
 
-        // Giới hạn 100 log
-        while (body.children.length > 100) body.removeChild(body.firstChild);
+        // Tự động cuộn xuống để xem log mới nhất (Giống pathfinding log)
+        const container = body.closest('.scrollable');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+
+        while (body.children.length > 120) body.removeChild(body.firstChild);
     };
 
-    document.getElementById('clear-inbound-log')?.addEventListener('click', () => {
-        const body = document.getElementById('task-inbound-body');
-        if (body) body.innerHTML = '<div class="log-entry system">Log nhập đã xóa.</div>';
-        lastProcessedTasks = {};
-    });
-
-    document.getElementById('clear-outbound-log')?.addEventListener('click', () => {
-        const body = document.getElementById('task-outbound-body');
-        if (body) body.innerHTML = '<div class="log-entry system">Log xuất đã xóa.</div>';
+    document.getElementById('clear-task-log')?.addEventListener('click', () => {
+        const body = document.getElementById('task-log-body');
+        if (body) body.innerHTML = '<tr class="task-log-row system"><td class="col-date">--/--/----</td><td class="col-time">--:--:--</td><td>Log task đã được xóa.</td></tr>';
         lastProcessedTasks = {};
     });
 
@@ -899,12 +1154,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     updatedMeta.y = lastStep.Y;
                 }
 
-                // -> UPDATE QR CODE METADATA
-                const floorText = floorSelect.options[floorSelect.selectedIndex]?.text || "1";
-                const floorMatch = floorText.match(/\d+/);
-                const currentFloorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
-                const padStr = (num) => String(num).padStart(4, '0');
-                const newQrcode = `${currentFloorZ}X${padStr(lastStep.X)}Y${padStr(lastStep.Y)}`;
+                // -> UPDATE QR CODE METADATA (Lấy trực tiếp từ node, không dùng quy luật x, y, z tự chế)
+                const endNodeInfo = currentNodesMap[endId];
+                const newQrcode = endNodeInfo ? (endNodeInfo.qrcode || endNodeInfo.qr_code || '') : '';
                 updatedMeta.qrcode = newQrcode;
 
                 // -> DETERMINE IDLE vs CHARGING STATUS
@@ -990,8 +1242,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                             delete sm.z;
                             if (sm.position) delete sm.position.z;
-                            const padStr = (num) => String(num).padStart(4, '0');
-                            sm.qrcode = `${targetZ}X${padStr(lastStep.X)}Y${padStr(lastStep.Y)}`;
+                            // Tìm node thực tế tại tọa độ đó ở tầng target và lấy qrcode trực tiếp từ node
+                            const targetNode = Object.values(currentNodesMap).find(n => n.x === lastStep.X && n.y === lastStep.Y);
+                            sm.qrcode = targetNode ? (targetNode.qrcode || targetNode.qr_code || '') : '';
                             
                             await MapService.updateDevice(whId, shuttleToCarry.id, { metadata: sm });
                             addLog(`✅ Đã đưa Shuttle ${shuttleToCarry.code} đến Tầng ${targetZ} thành công!`, "success");
@@ -1052,7 +1305,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (label && cachedDeviceElements[label]) delete cachedDeviceElements[label];
                 }
             });
-            
+
             // Xóa robot-icon giả lập nếu không phải robot đang di chuyển hiện tại
             mapGrid.querySelectorAll('.robot-icon').forEach(el => {
                 if (el !== currentRobot) el.remove();
@@ -1101,55 +1354,54 @@ document.addEventListener('DOMContentLoaded', () => {
             // [CRITICAL FIX] Dữ liệu từ Redis 'Fast Path' sẽ không có device_type_id.
             // Phải tham chiếu lại từ globalDevicesList để lấy đúng type của Robot.
             let actualDeviceTypeID = dev.device_type_id;
-            if (!actualDeviceTypeID && Array.isArray(globalDevicesList)) {
-                const globalDev = globalDevicesList.find(d => d.code === dev.code || d.id === dev.id);
-                if (globalDev) actualDeviceTypeID = globalDev.device_type_id;
+            let resolvedCode = dev.code || dev.no || '';
+            if (Array.isArray(globalDevicesList)) {
+                const globalDev = globalDevicesList.find(d => d.code === dev.code || d.id === dev.id || (dev.no && d.code === dev.no));
+                if (globalDev) {
+                    if (!actualDeviceTypeID) actualDeviceTypeID = globalDev.device_type_id;
+                    if (!resolvedCode) resolvedCode = globalDev.code || '';
+                }
             }
 
             const statusClass = `device-status-${(dev.status || 'OFFLINE').toLowerCase()}`;
             const devType = globalDeviceTypeMap[actualDeviceTypeID];
 
             // Logic bóc tách mang hàng - Dùng mã Thiết bị (Viết hoa) làm Key
-            const cargoKey = (dev.code || dev.id).toUpperCase();
+            const cargoKey = (resolvedCode || dev.id || '').toUpperCase();
             const nPosX = Number(posX);
             const nPosY = Number(posY);
 
             // [DỰ PHÒNG AN TOÀN] Nếu vẫn không tìm thấy devType, mặc định nó là SHUTTLE nếu tên mã chứa từ khóa
-            const isLifter = devType ? (devType.code === 'LIFTER') : (dev.code && dev.code.includes('LIFTER'));
-            const isShuttle = devType ? (devType.code === 'SHUTTLE') : (dev.code && dev.code.includes('SHUTTLE'));
+            const isLifter = devType ? (devType.code === 'LIFTER') : (resolvedCode && resolvedCode.includes('LIFTER'));
+            const isShuttle = devType ? (devType.code === 'SHUTTLE') : (resolvedCode && resolvedCode.includes('SHUTTLE'));
 
             if (isShuttle) {
-                const nPkgStatus = Number((meta.packageStatus !== undefined) ? meta.packageStatus : (raw.packageStatus !== undefined ? raw.packageStatus : 0));
-                const nSStatus = Number((meta.shuttleStatus !== undefined) ? meta.shuttleStatus : (raw.shuttleStatus !== undefined ? raw.shuttleStatus : 0));
+                const nPkgStatus = Number(
+                    (dev.packageStatus !== undefined) ? dev.packageStatus :
+                        (meta.packageStatus !== undefined) ? meta.packageStatus :
+                            (raw.packageStatus !== undefined) ? raw.packageStatus :
+                                (raw.package_status !== undefined) ? raw.package_status :
+                                    (dev.package_status !== undefined) ? dev.package_status :
+                                        (dev.package_status === undefined && raw.packageStatus === undefined && meta.packageStatus === undefined) ? 0 : 0
+                );
+                // [DEBUG] console.log(`Device ${dev.code} pkgStatus: ${nPkgStatus}`);
 
-                const oldCargoState = deviceWithCargoMap[cargoKey];
-
-                // [SMART CARGO VISUALIZATION] Trực quan hóa hàng hóa dựa trên cảm biến & trạng thái nghiệp vụ
-                // 1. Nếu đang Lấy hàng (shuttleStatus: 2) HOẶC Cảm biến báo Có hàng (packageStatus: 1) -> HIỆN HỘP
-                if (nSStatus === 2 || nPkgStatus === 1) {
-                    deviceWithCargoMap[cargoKey] = true;
-                }
-
-                // 2. Nếu đang Bỏ hàng (shuttleStatus: 3) -> reset ngay (dành cho tín hiệu tức thời)
-                if (nSStatus === 3) {
-                    deviceWithCargoMap[cargoKey] = false;
-                }
-
-                // 3. [ANTI-STUCK] Nếu Cảm biến báo Hết hàng (0) VÀ đang ở trạng thái Nghỉ (8) hoặc Chạy thường (7) 
-                // -> TRỘNG (Cập nhật về 0 để tránh kẹt Icon nếu bỏ lỡ tín hiệu UNLOAD trước đó)
-                if (nPkgStatus === 0 && (nSStatus === 8 || nSStatus === 7)) {
-                    deviceWithCargoMap[cargoKey] = false;
-                }
-
-                if (oldCargoState !== deviceWithCargoMap[cargoKey]) {
-                    console.log(`[Icon Debug] Device ${dev.code} Icon Latch Update: pkg[${nPkgStatus}] status[${nSStatus}] -> RESULT: ${deviceWithCargoMap[cargoKey]}`);
-                }
+                // [CARGO ICON RULE] Dựa trên packageStatus từ MQTT/DB
+                // 1 -> có hàng (shuttle_box)
+                // 2 -> lệch hàng (shuttle_misaligned)
+                // 0 -> không có hàng (shuttle_emp)
+                deviceWithCargoMap[cargoKey] = nPkgStatus;
             }
 
-            // GÁN CLASS CUỐI CÙNG: Đảm bảo không chồng lấn giữa 'shuttle-device' và 'shuttle-device-cargo'
+            // GÁN CLASS CUỐI CÙNG: Phân tách 3 trạng thái của Shuttle
             let typeClass = isLifter ? 'lifter-device' : 'shuttle-device';
-            if (isShuttle && deviceWithCargoMap[cargoKey]) {
-                typeClass = 'shuttle-device-cargo';
+            if (isShuttle) {
+                const cargoState = deviceWithCargoMap[cargoKey];
+                if (cargoState === 1) {
+                    typeClass = 'shuttle-device-cargo';
+                } else if (cargoState === 2) {
+                    typeClass = 'shuttle-device-misaligned';
+                }
             }
 
             // [ROBUST ICON RE-SYNC] 
@@ -1163,15 +1415,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     devIcon.setAttribute('data-id', dev.id);
                     cachedDeviceElements[dev.id] = devIcon;
                 }
-            } else if (isFullSync) {
-                // Quét DOM dọn dẹp kỹ hơn nếu là FullSync và vẫn không thấy trong cache
-                const clones = mapGrid.querySelectorAll(`.device-icon[data-id="${dev.id}"], .device-icon[data-label="${dev.code}"]`);
-                if (clones.length > 0) {
-                    devIcon = clones[0];
+            } else if (isFullSync && !devIcon) {
+                // Chỉ tìm kiếm thủ công trong DOM khi là FullSync và Cache chưa có
+                const existingEl = mapGrid.querySelector(`.device-icon[data-id="${dev.id}"], .device-icon[data-label="${dev.code}"]`);
+                if (existingEl) {
+                    devIcon = existingEl;
                     cachedDeviceElements[dev.id] = devIcon;
                     if (dev.code) cachedDeviceElements[dev.code] = devIcon;
-                    // Xóa các bản sao lỗi nếu có
-                    for (let i = 1; i < clones.length; i++) clones[i].remove();
                 }
             }
 
@@ -1275,7 +1525,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // [FAST PATH] Cập nhật vị trí bằng Transform thay vì gridArea để di chuyển mượt mà (sub-pixel)
             const gridSize = 40 * currentZoom; // var(--grid-size)
-            const iconOffset = (gridSize - (gridSize * 0.65)) / 2; // Căn giữa icon (7px nếu grid=40, icon=0.65)
+            const iconSizeRatio = isLifter ? 1.0 : 0.80; 
+            const iconOffset = (gridSize - (gridSize * iconSizeRatio)) / 2; 
 
             // [CRITICAL GUARD] Nếu tọa độ không hợp lệ → giữ nguyên vị trí cũ, KHÔNG nhảy về (0,0)
             const guardX = Number(posX);
@@ -1292,11 +1543,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            // Calculate direction and angle of rotation for shuttle (using shortest path to avoid spin looping)
+            let angle = 0;
+            if (isShuttle) {
+                const prevX = Number(devIcon.getAttribute('data-x'));
+                const prevY = Number(devIcon.getAttribute('data-y'));
+                let currentAngle = 0;
+                let savedAngle = devIcon.getAttribute('data-angle');
+                if (savedAngle !== null) {
+                    currentAngle = Number(savedAngle);
+                }
+
+                let targetAngle = currentAngle; // Default to current angle if no movement
+                if (!isNaN(prevX) && !isNaN(prevY) && !(prevX === 0 && prevY === 0)) {
+                    const dx = posX - prevX;
+                    const dy = posY - prevY;
+                    if (dx > 0) {
+                        targetAngle = 0; // Move Right -> faces Right (0 deg)
+                    } else if (dx < 0) {
+                        targetAngle = 180; // Move Left -> faces Left (180 deg)
+                    } else if (dy > 0) {
+                        targetAngle = 90; // Move Down -> faces Down (90 deg)
+                    } else if (dy < 0) {
+                        targetAngle = 270; // Move Up -> faces Up (270 deg)
+                    }
+                }
+
+                // Find closest equivalent angle to prevent spinning looping (shortest path rotation)
+                let diff = (targetAngle - currentAngle) % 360;
+                if (diff > 180) {
+                    diff -= 360;
+                } else if (diff < -180) {
+                    diff += 360;
+                }
+                angle = currentAngle + diff;
+                devIcon.setAttribute('data-angle', angle);
+
+                // Clean up any old head indicator if present
+                const headEl = devIcon.querySelector('.shuttle-head');
+                if (headEl) headEl.remove();
+            } else {
+                const headEl = devIcon.querySelector('.shuttle-head');
+                if (headEl) headEl.remove();
+            }
+
             const pixelX = posX * gridSize + iconOffset;
             const pixelY = posY * gridSize + iconOffset;
 
             // Sử dụng transform để kích hoạt tăng tốc phần cứng (GPU) cho animation
-            const newTransform = `translate(${pixelX}px, ${pixelY}px)`;
+            const newTransform = isShuttle ? `translate(${pixelX}px, ${pixelY}px) rotate(${angle}deg)` : `translate(${pixelX}px, ${pixelY}px)`;
             if (devIcon.style.transform !== newTransform) {
                 devIcon.style.transform = newTransform;
 
@@ -1305,9 +1600,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 devIcon.setAttribute('data-y', posY);
 
                 // Nếu là Shuttle vừa thay đổi tọa độ, log nhẹ
-                if (typeClass === 'shuttle-device') {
-                    console.log(`[Fast Path] Device ${dev.code} moved to (${posX}, ${posY})`);
-                }
+                // if (typeClass === 'shuttle-device') {
+                //     console.log(`[Fast Path] Device ${dev.code} moved to (${posX}, ${posY})`);
+                // }
             }
 
             // Xóa gridArea cũ để tránh xung đột layout
@@ -1360,7 +1655,26 @@ document.addEventListener('DOMContentLoaded', () => {
         // ... (existing code stays)
         if (!isMapStaticRendered || isPathfinding) return;
 
+        const floorText = floorSelect.options[floorSelect.selectedIndex]?.text || '';
+        const floorMatch = floorText.match(/\d+/);
+        const currentFloorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
+
         locations.forEach(loc => {
+            // [CRITICAL FIX] Lọc theo tầng (Z) để tránh 'Ghost Icon' xuất hiện ở các tầng khác cùng tọa độ X,Y
+            let locZ = loc.z;
+            if (locZ === undefined || locZ === null) {
+                // Fallback: Tìm trong map cache nếu loc không có Z
+                const node = currentNodesMap[loc.node_id];
+                if (node) locZ = node.z;
+            }
+
+            // Nếu xác định được Z và khác tầng hiện tại -> Xóa icon cũ (nếu có) và bỏ qua
+            if (locZ !== undefined && locZ !== null && Number(locZ) !== currentFloorZ) {
+                const existingGhost = document.querySelector(`.cargo-icon[data-location-id="${loc.id}"]`);
+                if (existingGhost) existingGhost.remove();
+                return;
+            }
+
             const isOccupied = (loc.is_occupied === true || loc.is_occupied === 1 || String(loc.is_occupied).toLowerCase() === 'true');
             let cargoIcon = document.querySelector(`.cargo-icon[data-location-id="${loc.id}"]`);
 
@@ -1510,7 +1824,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (type === 'UNLOAD') {
                     message = `${devName} đã đặt hàng thành công tại${toSuffix}.`;
                 } else if (type === 'LOAD') {
-                    message = `${devName} đã lấy hàng thành công tại${fromSuffix}.`;
+                    message = `${devName} đã lấy hàng thành công${fromSuffix}.`;
                 } else {
                     message = `${devName} đã hoàn thành nhiệm vụ ${type}.`;
                 }
@@ -1523,16 +1837,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 logType = "error";
             }
 
-            // [DYNAMIC ROUTING] Tách log theo quy trình INBOUND / OUTBOUND
             if (message) {
-                const purpose = (device?.purpose || '').toUpperCase();
-                const targetBodyId = (purpose === 'OUTBOUND') ? 'task-outbound-body' : 'task-inbound-body';
-                
-                const logsContainer = document.getElementById(targetBodyId);
-                const lastLog = logsContainer ? logsContainer.lastElementChild : null; // Check latest log
+                const logsContainer = document.getElementById('task-log-body');
+                const lastLog = logsContainer ? logsContainer.lastElementChild : null;
                 if (lastLog && lastLog.textContent.includes(message)) return;
 
-                addTaskLog(message, logType, targetBodyId);
+                addTaskLog(message, logType);
                 lastProcessedTasks[taskId] = status;
 
                 // Cập nhật 'Tức thời' trạng thái Robot mang hàng và Location dựa trên Task

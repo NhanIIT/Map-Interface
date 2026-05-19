@@ -40,46 +40,50 @@
             </div>
         </div>
 
+        <!-- Bảng log tổng hợp (Task & Pathfinding) -->
+        <section class="logs-wrapper-bottom">
+            <!-- Bảng log Task -->
+            <div class="log-panel task-log" id="task-log-panel">
+                <div class="log-header">
+                    <div class="log-title">TASK LOG</div>
+                    <button class="log-clear-btn" id="clear-task-log">Xóa</button>
+                </div>
+                <div class="log-content scrollable">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="col-date">Ngày</th>
+                                <th class="col-time">Thời gian</th>
+                                <th>Nội dung</th>
+                            </tr>
+                        </thead>
+                        <tbody id="task-log-body">
+                            <tr class="task-log-row system">
+                                <td class="col-date">--/--/----</td>
+                                <td class="col-time">--:--:--</td>
+                                <td>Đang chờ cập nhật task...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Bảng log Pathfinding (Hiển thị ngang hàng) -->
+            <div class="log-panel path-log" id="path-log-panel">
+                <div class="log-header">
+                    <div class="log-title">PATHFINDING LOG</div>
+                    <button class="log-clear-btn" id="clear-log-mini">Xóa</button>
+                </div>
+                <div class="log-content scrollable" id="log-body">
+                    <div class="log-entry system">Sẵn sàng nhận dữ liệu tìm đường...</div>
+                </div>
+            </div>
+        </section>
+
         <!-- Bảng chú giải Zoom & Legend -->
         <div class="zoom-controls">
             <button id="zoom-in" class="zoom-btn">+</button>
             <button id="zoom-out" class="zoom-btn">−</button>
-        </div>
-
-        <!-- Nhóm các Khung Log bên phải -->
-        <div class="side-panel-right">
-            <!-- Khung Log Hoạt Động Task: INBOUND -->
-            <aside class="task-log-panel inbound-panel" id="task-inbound-panel">
-                <div class="log-header">
-                    <h3>Inbound Log</h3>
-                    <button class="clear-log-mini" id="clear-inbound-log">Xóa</button>
-                </div>
-                <div class="log-body" id="task-inbound-body">
-                    <div class="log-entry system">Đang chờ nhập...</div>
-                </div>
-            </aside>
-
-            <!-- Khung Log Hoạt Động Task: OUTBOUND -->
-            <aside class="task-log-panel outbound-panel" id="task-outbound-panel">
-                <div class="log-header">
-                    <h3>Outbound Log</h3>
-                    <button class="clear-log-mini" id="clear-outbound-log">Xóa</button>
-                </div>
-                <div class="log-body" id="task-outbound-body">
-                    <div class="log-entry system">Đang chờ xuất...</div>
-                </div>
-            </aside>
-
-            <!-- Khung Log Tìm Đường -->
-            <aside class="path-log-panel" id="path-log-panel">
-                <div class="log-header">
-                    <h3>Pathfinding Log</h3>
-                    <button class="clear-log-mini" id="clear-log-mini">Xóa Log</button>
-                </div>
-                <div class="log-body" id="log-body">
-                    <div class="log-entry system">Sẵn sàng...</div>
-                </div>
-            </aside>
         </div>
 
         <!-- Bảng Chú Thích Zone (Nằm ngang ở dưới) -->
