@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const deviceData = parseKafkaPayload(data);
         // [DEBUG] Theo dõi trạng thái mang hàng gửi từ Gateway
         console.log(`[DEVICE_MOVED] Robot: ${deviceData.code} | PkgStatus: ${deviceData.packageStatus} | Status: ${deviceData.status}`);
-        
+
         // [FIX] Hỗ trợ cả 'id' (database) và 'no' (simulator). Chuẩn hóa 'code' để đồng nhất với globalDevicesList
         const devId = deviceData.id || deviceData.no;
         const devCode = deviceData.code || deviceData.no || devId;
@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const parseQrCodeCoords = (qrcode) => {
         if (!qrcode || typeof qrcode !== 'string') return null;
-        
+
         // Tìm trực tiếp trong danh sách node toàn cục bằng qrcode (Không phụ thuộc x,y,z cố định)
         if (typeof globalNodesMapByQr !== 'undefined') {
             const node = globalNodesMapByQr[qrcode];
@@ -425,14 +425,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 // Fetch nodes cho TẤT CẢ các tầng để lập bản đồ QR toàn cục trong kho
-                const floorNodesPromises = response.elements.map(floor => 
+                const floorNodesPromises = response.elements.map(floor =>
                     MapService.fetchNodes(whId, floor.id).then(res => {
                         const nodes = res ? (res.elements || res.data || []) : [];
                         nodes.forEach(node => {
                             const floorText = floor.name || "";
                             const floorMatch = floorText.match(/\d+/);
                             const floorZ = floorMatch ? parseInt(floorMatch[0]) : 1;
-                            
+
                             node.z = floorZ;
                             node.warehouse_floor_id = floor.id;
 
@@ -647,41 +647,41 @@ document.addEventListener('DOMContentLoaded', () => {
                     const zoneType = (zone && zone.zone_type_id && globalZoneTypeMap[zone.zone_type_id]) ? globalZoneTypeMap[zone.zone_type_id].code : '';
                     const isStorage = zoneType === 'STORAGE';
 
-                        if (isStorage) {
-                            const zoneHue = zone ? zoneHueMap.get(zone.id) : null;
-                            const zoneStyle = getEntityColor(zone, 'zone', zoneHue);
-                            const zid = zone.id;
+                    if (isStorage) {
+                        const zoneHue = zone ? zoneHueMap.get(zone.id) : null;
+                        const zoneStyle = getEntityColor(zone, 'zone', zoneHue);
+                        const zid = zone.id;
 
-                            // Chỉ dùng viền màu bao quanh, không bôi màu nền
-                            nodeHighlight.style.backgroundColor = 'transparent';
-                            nodeHighlight.classList.add('is-storage-node');
-                            nodeHighlight.style.borderRadius = '0';
+                        // Chỉ dùng viền màu bao quanh, không bôi màu nền
+                        nodeHighlight.style.backgroundColor = 'transparent';
+                        nodeHighlight.classList.add('is-storage-node');
+                        nodeHighlight.style.borderRadius = '0';
 
-                            // Logic vẽ viền bao quanh cụm node STORAGE khớp chính xác với hình dạng
-                            const nx = node.x, ny = node.y;
-                            const bColor = zoneStyle.border;
-                            const bWidth = '3px';
-                            
-                            const hasT = coordToNodeMap[`${nx}:${ny-1}`]?.zone_id === zid;
-                            const hasB = coordToNodeMap[`${nx}:${ny+1}`]?.zone_id === zid;
-                            const hasL = coordToNodeMap[`${nx-1}:${ny}`]?.zone_id === zid;
-                            const hasR = coordToNodeMap[`${nx+1}:${ny}`]?.zone_id === zid;
+                        // Logic vẽ viền bao quanh cụm node STORAGE khớp chính xác với hình dạng
+                        const nx = node.x, ny = node.y;
+                        const bColor = zoneStyle.border;
+                        const bWidth = '3px';
 
-                            if (!hasT) nodeHighlight.style.borderTop = `${bWidth} solid ${bColor}`;
-                            if (!hasB) nodeHighlight.style.borderBottom = `${bWidth} solid ${bColor}`;
-                            if (!hasL) nodeHighlight.style.borderLeft = `${bWidth} solid ${bColor}`;
-                            if (!hasR) nodeHighlight.style.borderRight = `${bWidth} solid ${bColor}`;
+                        const hasT = coordToNodeMap[`${nx}:${ny - 1}`]?.zone_id === zid;
+                        const hasB = coordToNodeMap[`${nx}:${ny + 1}`]?.zone_id === zid;
+                        const hasL = coordToNodeMap[`${nx - 1}:${ny}`]?.zone_id === zid;
+                        const hasR = coordToNodeMap[`${nx + 1}:${ny}`]?.zone_id === zid;
 
-                            // Bo góc mượt mà cho các góc ngoài
-                            const radius = '6px';
-                            if (!hasT && !hasL) nodeHighlight.style.borderTopLeftRadius = radius;
-                            if (!hasT && !hasR) nodeHighlight.style.borderTopRightRadius = radius;
-                            if (!hasB && !hasL) nodeHighlight.style.borderBottomLeftRadius = radius;
-                            if (!hasB && !hasR) nodeHighlight.style.borderBottomRightRadius = radius;
-                        } else {
-                            // Khu vực không phải STORAGE: Không màu, không viền
-                            nodeHighlight.style.backgroundColor = 'transparent';
-                            nodeHighlight.classList.add('is-non-storage');
+                        if (!hasT) nodeHighlight.style.borderTop = `${bWidth} solid ${bColor}`;
+                        if (!hasB) nodeHighlight.style.borderBottom = `${bWidth} solid ${bColor}`;
+                        if (!hasL) nodeHighlight.style.borderLeft = `${bWidth} solid ${bColor}`;
+                        if (!hasR) nodeHighlight.style.borderRight = `${bWidth} solid ${bColor}`;
+
+                        // Bo góc mượt mà cho các góc ngoài
+                        const radius = '6px';
+                        if (!hasT && !hasL) nodeHighlight.style.borderTopLeftRadius = radius;
+                        if (!hasT && !hasR) nodeHighlight.style.borderTopRightRadius = radius;
+                        if (!hasB && !hasL) nodeHighlight.style.borderBottomLeftRadius = radius;
+                        if (!hasB && !hasR) nodeHighlight.style.borderBottomRightRadius = radius;
+                    } else {
+                        // Khu vực không phải STORAGE: Không màu, không viền
+                        nodeHighlight.style.backgroundColor = 'transparent';
+                        nodeHighlight.classList.add('is-non-storage');
                     }
 
                     // 3. Tower Border
@@ -1161,7 +1161,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // -> DETERMINE IDLE vs CHARGING STATUS
                 let newStatus = 'IDLE';
-                const endNodeInfo = currentNodesMap[endId];
                 // Using the global zone map cache
                 if (endNodeInfo && typeof globalZoneMap !== 'undefined') {
                     const zone = endNodeInfo.zone_id ? globalZoneMap[endNodeInfo.zone_id] : null;
@@ -1525,8 +1524,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // [FAST PATH] Cập nhật vị trí bằng Transform thay vì gridArea để di chuyển mượt mà (sub-pixel)
             const gridSize = 40 * currentZoom; // var(--grid-size)
-            const iconSizeRatio = isLifter ? 1.0 : 0.80; 
-            const iconOffset = (gridSize - (gridSize * iconSizeRatio)) / 2; 
+            const iconSizeRatio = isLifter ? 1.0 : 0.80;
+            const iconOffset = (gridSize - (gridSize * iconSizeRatio)) / 2;
 
             // [CRITICAL GUARD] Nếu tọa độ không hợp lệ → giữ nguyên vị trí cũ, KHÔNG nhảy về (0,0)
             const guardX = Number(posX);
