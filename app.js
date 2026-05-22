@@ -1325,12 +1325,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const raw = meta.raw || {};
-            // [FIX] Tìm qrCode từ MỌI nguồn: MQTT raw, metadata DB, device object (tất cả naming conventions)
-            const qrValue = raw.qrCode || raw.qrcode || meta.qrcode || meta.qrCode
-                || dev.qrCode || dev.qrcode || dev.qr_code || '';
+
+            // [TCS REALTIME FIX] Ưu tiên tuyệt đối qrCode từ payload TCS telemetry (phẳng: no, qrCode, packageStatus...)
+            // TCS nhận shuttle/information/{code} mỗi 300ms và publish lên Redis channel "device_telemetry_updates"
+            // với payload: { no, qrCode, packageStatus, shuttleStatus, batteryPercent, warehouse_id }
+            // Khi DEVICE_MOVED nhận được, dev CHÍNH LÀ payload đó → đọc dev.qrCode trực tiếp, không cần raw
+            const qrValue = dev.qrCode || dev.qrcode || dev.qr_code
+                || raw.qrCode || raw.qrcode
+                || meta.qrcode || meta.qrCode || '';
             const parsedCoords = parseQrCodeCoords(qrValue);
 
-            // [FIX] Ưu tiên qrCode (MQTT live), fallback metadata DB, fallback device top-level
+            // Ưu tiên: 1. qrCode từ TCS realtime, 2. metadata DB position, 3. raw fields
             let posX, posY, posZ;
             if (parsedCoords && !(parsedCoords.x === 0 && parsedCoords.y === 0)) {
                 posX = parsedCoords.x;
@@ -1350,19 +1355,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-            // [CRITICAL FIX] Dữ liệu từ Redis 'Fast Path' sẽ không có device_type_id.
-            // Phải tham chiếu lại từ globalDevicesList để lấy đúng type của Robot.
+            // Dữ liệu từ Redis telemetry (DEVICE_MOVED) không có device_type_id.
+            // Tham chiếu lại từ globalDevicesList bằng cách match trực tiếp:
+            // payload.no = device.code trong DB (không có quy định đặt tên, nhận ngư vậy dùng ngư vậy)
             let actualDeviceTypeID = dev.device_type_id;
             let resolvedCode = dev.code || dev.no || '';
+            let globalDev = null;
             if (Array.isArray(globalDevicesList)) {
-                const globalDev = globalDevicesList.find(d => d.code === dev.code || d.id === dev.id || (dev.no && d.code === dev.no));
+                globalDev = globalDevicesList.find(d =>
+                    d.id === dev.id ||
+                    d.code === dev.code ||
+                    (dev.no && d.code === dev.no)
+                );
                 if (globalDev) {
                     if (!actualDeviceTypeID) actualDeviceTypeID = globalDev.device_type_id;
-                    if (!resolvedCode) resolvedCode = globalDev.code || '';
+                    if (!resolvedCode) resolvedCode = globalDev.code || resolvedCode;
                 }
             }
 
-            const statusClass = `device-status-${(dev.status || 'OFFLINE').toLowerCase()}`;
+            // TCS telemetry không có trường "status" → lấy từ globalDev (DB) nếu có
+            const devStatus = dev.status || (globalDev && globalDev.status) || 'OFFLINE';
+            const statusClass = `device-status-${devStatus.toLowerCase()}`;
             const devType = globalDeviceTypeMap[actualDeviceTypeID];
 
             // Logic bóc tách mang hàng - Dùng mã Thiết bị (Viết hoa) làm Key
@@ -1375,15 +1388,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const isShuttle = devType ? (devType.code === 'SHUTTLE') : (resolvedCode && resolvedCode.includes('SHUTTLE'));
 
             if (isShuttle) {
+                // [TCS REALTIME FIX] packageStatus từ TCS telemetry luôn là trường phẳng trong dev
+                // Thứ tự ưu tiên: dev.packageStatus (TCS realtime) > raw.packageStatus (MQTT DB) > meta > 0
                 const nPkgStatus = Number(
                     (dev.packageStatus !== undefined) ? dev.packageStatus :
-                        (meta.packageStatus !== undefined) ? meta.packageStatus :
-                            (raw.packageStatus !== undefined) ? raw.packageStatus :
-                                (raw.package_status !== undefined) ? raw.package_status :
-                                    (dev.package_status !== undefined) ? dev.package_status :
-                                        (dev.package_status === undefined && raw.packageStatus === undefined && meta.packageStatus === undefined) ? 0 : 0
+                        (raw.packageStatus !== undefined) ? raw.packageStatus :
+                            (raw.package_status !== undefined) ? raw.package_status :
+                                (meta.packageStatus !== undefined) ? meta.packageStatus :
+                                    (dev.package_status !== undefined) ? dev.package_status : 0
                 );
-                // [DEBUG] console.log(`Device ${dev.code} pkgStatus: ${nPkgStatus}`);
 
                 // [CARGO ICON RULE] Dựa trên packageStatus từ MQTT/DB
                 // 1 -> có hàng (shuttle_box)
@@ -1403,24 +1416,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // [ROBUST ICON RE-SYNC] 
-            // 1. Tìm icon hiện có (theo ID cũ UUID hoặc theo Code SHUTTLE-XXX)
-            devIcon = cachedDeviceElements[dev.id] || (dev.code ? cachedDeviceElements[dev.code] : null);
+            // Tìm icon hiện có trong cache theo ID (UUID từ DB) hoặc resolvedCode (code thiết bị)
+            devIcon = cachedDeviceElements[dev.id] || cachedDeviceElements[resolvedCode];
 
-            // 2. Nếu tìm thấy theo Code nhưng ID trong data-id khác (vd từ UUID sang Code), cập nhật lại
             if (devIcon) {
+                // Nếu trao trả tìm thấy theo resolvedCode nhưng data-id khác → cập nhật
                 const currentId = devIcon.getAttribute('data-id');
-                if (currentId !== dev.id) {
+                if (dev.id && currentId !== dev.id) {
                     devIcon.setAttribute('data-id', dev.id);
                     cachedDeviceElements[dev.id] = devIcon;
                 }
-            } else if (isFullSync && !devIcon) {
-                // Chỉ tìm kiếm thủ công trong DOM khi là FullSync và Cache chưa có
-                const existingEl = mapGrid.querySelector(`.device-icon[data-id="${dev.id}"], .device-icon[data-label="${dev.code}"]`);
+            } else if (isFullSync) {
+                // Tìm thủ công trong DOM khi FullSync và cache chưa có
+                const existingEl = mapGrid.querySelector(
+                    `.device-icon[data-id="${dev.id}"], .device-icon[data-label="${resolvedCode}"]`
+                );
                 if (existingEl) {
                     devIcon = existingEl;
-                    cachedDeviceElements[dev.id] = devIcon;
-                    if (dev.code) cachedDeviceElements[dev.code] = devIcon;
+                    if (dev.id) cachedDeviceElements[dev.id] = devIcon;
+                    cachedDeviceElements[resolvedCode] = devIcon;
                 }
             }
 
@@ -1429,7 +1443,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Chỉ sử dụng Simulated Position khi không có bất kỳ nguồn dữ liệu tọa độ thực tế nào 
             // hoặc khi muốn ép icon về vị trí mong muốn trong lúc mất kết nối.
             if ((posX === undefined || posY === undefined || (posX === 0 && posY === 0)) && !devIcon) {
-                const simPos = simulatedPositionMap[dev.id] || (dev.code ? simulatedPositionMap[dev.code] : null);
+                const simPos = simulatedPositionMap[dev.id] || simulatedPositionMap[resolvedCode];
                 if (simPos) {
                     posX = simPos.x;
                     posY = simPos.y;
