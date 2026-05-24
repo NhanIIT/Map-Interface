@@ -1,5 +1,5 @@
 // api.js - File gọi API thực tế từ gateway
-const API_BASE_URL = 'http://10.14.82.11:8888/api/v2';
+const API_BASE_URL = 'http://localhost:8888/api/v2';
 
 const MapService = {
     onUnauthorized: null,
@@ -162,7 +162,7 @@ const MapService = {
         try {
             const upperPurpose = (purpose || '').toUpperCase();
             const purposeQuery = upperPurpose ? `&purpose=${upperPurpose}` : '';
-            const response = await fetch(`http://10.14.82.11:8082/debug/map-state/${warehouseId}/find-path?start=${startNodeId}&end=${endNodeId}${purposeQuery}`);
+            const response = await fetch(`http://localhost:8082/debug/map-state/${warehouseId}/find-path?start=${startNodeId}&end=${endNodeId}${purposeQuery}`);
             if (!response.ok) {
                 const err = await response.json();
                 throw new Error(err.message || "Không tìm thấy đường");
@@ -176,7 +176,7 @@ const MapService = {
 
     async reloadMap(warehouseId) {
         try {
-            const response = await fetch(`http://10.14.82.11:8082/debug/map-state/${warehouseId}/reload`, { method: 'POST' });
+            const response = await fetch(`http://localhost:8082/debug/map-state/${warehouseId}/reload`, { method: 'POST' });
             return await response.json();
         } catch (error) {
             console.error("[Reload Map Error]:", error);

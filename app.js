@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRendering = false; // Flag chống render chồng chéo
 
     // --- WebSocket Realtime ---
-    const socket = io('http://10.14.82.11:8888/realtime');
+    const socket = io('http://localhost:8888/realtime');
 
     socket.on('connect', () => {
         console.log('✅ [WebSocket] Connected to Realtime Gateway');
