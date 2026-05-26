@@ -1556,66 +1556,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Calculate direction and angle of rotation for shuttle (using shortest path to avoid spin looping)
-            let angle = 0;
-            if (isShuttle) {
-                const prevX = Number(devIcon.getAttribute('data-x'));
-                const prevY = Number(devIcon.getAttribute('data-y'));
-                let currentAngle = 0;
-                let savedAngle = devIcon.getAttribute('data-angle');
-                if (savedAngle !== null) {
-                    currentAngle = Number(savedAngle);
-                }
-
-                let targetAngle = currentAngle; // Default to current angle if no movement
-                if (!isNaN(prevX) && !isNaN(prevY) && !(prevX === 0 && prevY === 0)) {
-                    const dx = posX - prevX;
-                    const dy = posY - prevY;
-                    if (dx > 0) {
-                        targetAngle = 0; // Move Right -> faces Right (0 deg)
-                    } else if (dx < 0) {
-                        targetAngle = 180; // Move Left -> faces Left (180 deg)
-                    } else if (dy > 0) {
-                        targetAngle = 90; // Move Down -> faces Down (90 deg)
-                    } else if (dy < 0) {
-                        targetAngle = 270; // Move Up -> faces Up (270 deg)
-                    }
-                }
-
-                // Find closest equivalent angle to prevent spinning looping (shortest path rotation)
-                let diff = (targetAngle - currentAngle) % 360;
-                if (diff > 180) {
-                    diff -= 360;
-                } else if (diff < -180) {
-                    diff += 360;
-                }
-                angle = currentAngle + diff;
-                devIcon.setAttribute('data-angle', angle);
-
-                // Clean up any old head indicator if present
-                const headEl = devIcon.querySelector('.shuttle-head');
-                if (headEl) headEl.remove();
-            } else {
-                const headEl = devIcon.querySelector('.shuttle-head');
-                if (headEl) headEl.remove();
-            }
+            // Clean up any old head indicator if present
+            const headEl = devIcon.querySelector('.shuttle-head');
+            if (headEl) headEl.remove();
 
             const pixelX = posX * gridSize + iconOffset;
             const pixelY = posY * gridSize + iconOffset;
 
-            // Sử dụng transform để kích hoạt tăng tốc phần cứng (GPU) cho animation
-            const newTransform = isShuttle ? `translate(${pixelX}px, ${pixelY}px) rotate(${angle}deg)` : `translate(${pixelX}px, ${pixelY}px)`;
+            // Sử dụng transform để kích hoạt tăng tốc phần cứng (GPU) cho di chuyển tịnh tiến mượt mà (không xoay)
+            const newTransform = `translate(${pixelX}px, ${pixelY}px)`;
             if (devIcon.style.transform !== newTransform) {
                 devIcon.style.transform = newTransform;
 
                 // Lưu lại tọa độ vào thuộc tính để các hàm khác (như applyZoom) có thể tham chiếu
                 devIcon.setAttribute('data-x', posX);
                 devIcon.setAttribute('data-y', posY);
-
-                // Nếu là Shuttle vừa thay đổi tọa độ, log nhẹ
-                // if (typeClass === 'shuttle-device') {
-                //     console.log(`[Fast Path] Device ${dev.code} moved to (${posX}, ${posY})`);
-                // }
             }
 
             // Xóa gridArea cũ để tránh xung đột layout
